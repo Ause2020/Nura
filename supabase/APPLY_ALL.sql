@@ -1,0 +1,41 @@
+-- ═══════════════════════════════════════════════════════════════════
+-- Nura · Guía de migraciones en Supabase
+-- ═══════════════════════════════════════════════════════════════════
+--
+-- REGLA: Si un script falla con "already exists" / "ya existe",
+--        NO lo vuelvas a correr. Esa parte ya está aplicada.
+--        Pasa al siguiente número o ve directo al 016.
+--
+-- PASO 0 — Diagnóstico (opcional)
+--   Ejecuta: check_state.sql
+--
+-- PASO 1 — Migraciones base (solo las que FALTEN)
+--   Si organizations YA EXISTE → salta el 001
+--   Si haccp_products YA EXISTE → salta el 002
+--   ... y así sucesivamente hasta el 013
+--
+--   Orden:
+--   001_auth_onboarding.sql      ← SALTAR si "organizations already exists"
+--   002_haccp_products.sql
+--   003_haccp_hazards_ccps.sql
+--   004_prp_programs.sql
+--   005_audits.sql
+--   006_capa.sql
+--   007_notifications.sql
+--   008_manual_access.sql
+--   009_invitations.sql
+--   010_company_settings.sql
+--   011_quality_lab.sql
+--   012_suppliers.sql
+--   013_customer_complaints.sql
+--
+-- PASO 2 — Bootstrap de producción (OBLIGATORIO, siempre al final)
+--   Ejecuta: 016_production_bootstrap.sql
+--   Es idempotente: puedes ejecutarlo varias veces sin romper nada.
+--
+-- NO ejecutes 014 ni 015 si ya corriste 016 (están incluidos).
+--
+-- Posteriores (si faltan):
+--   033_ai_daily_insights.sql   ← briefing diario de IA (/analisis)
+--   034_monitoring_qr_ocr.sql   ← QR de terreno + origen de registros
+-- ═══════════════════════════════════════════════════════════════════
