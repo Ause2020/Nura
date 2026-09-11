@@ -31,7 +31,9 @@ import {
   getReviewAlert,
   uploadDocumentFile,
 } from "@/lib/documents/utils";
+import { canManageQuality } from "@/lib/auth/permissions";
 import { createNotification } from "@/lib/notifications";
+import { PrivateFileLink } from "@/components/storage/private-file";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import type {
@@ -88,7 +90,7 @@ export function DocumentDetailView({
   const [newVersionSummary, setNewVersionSummary] = useState("");
   const [newVersionFile, setNewVersionFile] = useState<File | null>(null);
 
-  const canManage = userRole === "admin" || userRole === "quality_manager";
+  const canManage = canManageQuality(userRole);
   const currentVersion = versions.find((v) => v.id === doc.current_version_id);
   const profileMap = useMemo(
     () => new Map(profiles.map((p) => [p.id, p])),
@@ -508,15 +510,14 @@ export function DocumentDetailView({
                   )}
                 </div>
                 {currentVersion?.file_url && (
-                  <a
-                    href={currentVersion.file_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <PrivateFileLink
+                    kind="document-version"
+                    id={currentVersion.id}
                     className="inline-flex items-center gap-1 text-xs text-forest hover:underline"
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
                     Ver archivo
-                  </a>
+                  </PrivateFileLink>
                 )}
               </div>
 
@@ -661,15 +662,14 @@ export function DocumentDetailView({
                   </td>
                   <td className="px-4 py-2">
                     {v.file_url ? (
-                      <a
-                        href={v.file_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <PrivateFileLink
+                        kind="document-version"
+                        id={v.id}
                         className="text-forest hover:underline text-xs inline-flex items-center gap-1"
                       >
                         <FileText className="h-3.5 w-3.5" />
                         {v.file_name ?? "Archivo"}
-                      </a>
+                      </PrivateFileLink>
                     ) : (
                       "—"
                     )}

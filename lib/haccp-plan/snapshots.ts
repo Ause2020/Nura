@@ -154,9 +154,21 @@ export async function createPlanVersionDocument(input: {
     [JSON.stringify({ module: `Plan HACCP - ${step?.title ?? input.stepId}`, data: input.snapshot }, null, 2)],
     { type: "application/json" }
   );
-  const path = `${input.organizationId}/${documentId}/v1-snapshot.json`;
-  await supabase.storage.from("documents").upload(path, blob, { upsert: true });
-  const { data: urlData } = supabase.storage.from("documents").getPublicUrl(path);
+  const { uploadPrivateObject } = await import("@/lib/storage/private");
+  const { DOCUMENTS_BUCKET } = await import("@/lib/documents/utils");
+  const uploaded = await uploadPrivateObject(supabase, {
+    bucket: DOCUMENTS_BUCKET,
+    organizationId: input.organizationId,
+    entityId: documentId,
+    file: blob,
+    fileName: "v1-snapshot.json",
+    contentType: "application/json",
+    upsert: true,
+  });
+  if ("error" in uploaded) {
+    throw new Error(uploaded.error);
+  }
+  const fileUrl = uploaded.path;
 
   const hash = await computeDocumentSignatureHash({
     userId: input.userId,
@@ -171,7 +183,7 @@ export async function createPlanVersionDocument(input: {
       organization_id: input.organizationId,
       document_id: documentId,
       version_number: 1,
-      file_url: urlData.publicUrl,
+      file_url: fileUrl,
       file_name: `${code}.json`,
       change_summary: input.changes,
       created_by: input.userId,

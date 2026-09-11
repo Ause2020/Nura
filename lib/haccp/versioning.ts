@@ -1,3 +1,4 @@
+import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
 import type { DocumentStatus, UserRole } from "@/types/database";
 
 export type HaccpPlanStatus = DocumentStatus;
@@ -29,15 +30,18 @@ export async function computeHaccpPlanSignatureHash(input: {
     .join("");
 }
 
-const TRANSITION_ROLES: Record<string, UserRole[]> = {
-  "draft->in_review": ["admin", "quality_manager"],
-  "in_review->approved": ["admin", "quality_manager"],
-  "in_review->draft": ["admin", "quality_manager"],
-  "approved->published": ["admin", "quality_manager"],
-  "approved->draft": ["admin"],
-  "published->obsolete": ["admin"],
-  "published->draft": ["admin", "quality_manager"],
-};
+const RESTRICTED_TRANSITIONS = new Set([
+  "approved->draft",
+  "published->obsolete",
+]);
+
+const MANAGE_TRANSITIONS = new Set([
+  "draft->in_review",
+  "in_review->approved",
+  "in_review->draft",
+  "approved->published",
+  "published->draft",
+]);
 
 export function canTransitionPlanStatus(
   role: UserRole,
@@ -45,7 +49,13 @@ export function canTransitionPlanStatus(
   to: HaccpPlanStatus
 ): boolean {
   const key = `${from}->${to}`;
-  return TRANSITION_ROLES[key]?.includes(role) ?? false;
+  if (RESTRICTED_TRANSITIONS.has(key)) {
+    return hasPermission(role, PERMISSIONS.haccp.transitionRestricted);
+  }
+  if (MANAGE_TRANSITIONS.has(key)) {
+    return hasPermission(role, PERMISSIONS.haccp.manage);
+  }
+  return false;
 }
 
 export function getAvailablePlanTransitions(

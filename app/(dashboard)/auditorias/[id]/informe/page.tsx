@@ -10,10 +10,11 @@ import type { Audit, AuditChecklistItem, AuditFinding } from "@/types/database";
 import { getSessionUser } from "@/lib/auth/cached-session";
 
 interface PageProps {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 export default async function InformeAuditoriaPage({ params }: PageProps) {
+  const { id } = await params;
   const orgId = await requireOrganizationId();
   const supabase = await createClient();
 
@@ -23,7 +24,7 @@ export default async function InformeAuditoriaPage({ params }: PageProps) {
   const { data: auditData } = await supabase
     .from("audits")
     .select("*")
-    .eq("id", params.id)
+    .eq("id", id)
     .eq("organization_id", orgId)
     .maybeSingle();
 
@@ -31,7 +32,7 @@ export default async function InformeAuditoriaPage({ params }: PageProps) {
   if (!audit) notFound();
 
   if (audit.status !== "completed") {
-    redirect(`/auditorias/${params.id}/ejecutar`);
+    redirect(`/auditorias/${id}/ejecutar`);
   }
 
   const [{ data: itemsData }, { data: findingsData }, { data: orgData }] =

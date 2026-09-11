@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ensureUserProfile, repairStuckOnboarding } from "@/lib/auth/session";
-import { createClient } from "@/lib/supabase/client";
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -40,13 +39,19 @@ export function LoginForm() {
     setFieldErrors({});
     setLoading(true);
 
-    const supabase = createClient();
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
+    const loginRes = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: email.trim(), password }),
     });
 
-    if (error || !data.user) {
+    if (loginRes.status === 429) {
+      setAuthError("Demasiados intentos. Intenta de nuevo en unos minutos.");
+      setLoading(false);
+      return;
+    }
+
+    if (!loginRes.ok) {
       setAuthError("Credenciales incorrectas");
       setLoading(false);
       return;

@@ -1,28 +1,10 @@
-import { getSessionProfile, getSessionUser } from "@/lib/auth/cached-session";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionProfile } from "@/lib/auth/cached-session";
+import { PERMISSIONS } from "@/lib/auth/permissions";
+import { requirePermission } from "@/lib/auth/require-permission";
 import type { UserRole } from "@/types/database";
 
 export async function requireOrgAdmin() {
-  const [user, profile] = await Promise.all([
-    getSessionUser(),
-    getSessionProfile(),
-  ]);
-
-  if (!user) throw new Error("Unauthorized");
-
-  if (!profile?.organization_id || profile.role !== "admin") {
-    throw new Error("Solo administradores pueden gestionar el equipo");
-  }
-
-  return {
-    supabase: await createClient(),
-    user,
-    profile: {
-      id: user.id,
-      organization_id: profile.organization_id,
-      role: profile.role,
-    },
-  };
+  return requirePermission(PERMISSIONS.users.manage);
 }
 
 export async function getCurrentUserRole(): Promise<{

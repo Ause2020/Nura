@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import React from "react";
 import { renderToBuffer } from "@react-pdf/renderer";
 import type { DocumentProps } from "@react-pdf/renderer";
+import { PERMISSIONS } from "@/lib/auth/permissions";
+import { authzResponse, requirePermission } from "@/lib/auth/require-permission";
 import { AuditPdfDocument } from "@/lib/export/audit-pdf-document";
-import { createClient } from "@/lib/supabase/server";
 import type { Audit, AuditChecklistItem, AuditFinding } from "@/types/database";
 import type { ExportLang } from "@/lib/export/labels";
 
@@ -11,26 +12,21 @@ import type { ExportLang } from "@/lib/export/labels";
 export const runtime = "nodejs";
 
 interface Params {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 export async function GET(req: Request, { params }: Params) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("organization_id")
-    .eq("id", user.id)
-    .single();
-
-  const organizationId = (profile as { organization_id: string } | null)
-    ?.organization_id;
-  if (!organizationId)
-    return NextResponse.json({ error: "No organization" }, { status: 403 });
+  const { id } = await params;
+  let supabase;
+  let organizationId: string;
+  try {
+    const session = await requirePermission(PERMISSIONS.audits.read);
+    supabase = session.supabase;
+    organizationId = session.profile.organization_id;
+  } catch (error) {
+    const { body, status } = authzResponse(error);
+    return NextResponse.json(body, { status });
+  }
 
   const url = new URL(req.url);
   const lang: ExportLang =
@@ -47,18 +43,18 @@ export async function GET(req: Request, { params }: Params) {
     supabase
       .from("audits")
       .select("*")
-      .eq("id", params.id)
+      .eq("id", id)
       .eq("organization_id", organizationId)
       .single(),
     supabase
       .from("audit_checklist_items")
       .select("*")
-      .eq("audit_id", params.id)
+      .eq("audit_id", id)
       .order("position"),
     supabase
       .from("audit_findings")
       .select("*")
-      .eq("audit_id", params.id)
+      .eq("audit_id", id)
       .order("created_at"),
     supabase
       .from("organizations")

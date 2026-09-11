@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { PERMISSIONS } from "@/lib/auth/permissions";
+import { authzResponse, requirePermission } from "@/lib/auth/require-permission";
 import { generateNcNumber } from "@/lib/capa/utils";
 import { getSuggestedDueDate } from "@/lib/capa/utils";
 import { computeCapaSignatureHash } from "@/lib/capa/workflow";
@@ -8,22 +9,18 @@ import { notifyOrgManagers } from "@/lib/notifications";
 import type { NcOrigin, NcSeverity } from "@/types/database";
 
 export async function POST(req: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("organization_id")
-    .eq("id", user.id)
-    .single();
-
-  const organizationId = (profile as { organization_id: string } | null)
-    ?.organization_id;
-  if (!organizationId)
-    return NextResponse.json({ error: "No organization" }, { status: 403 });
+  let supabase;
+  let user;
+  let organizationId: string;
+  try {
+    const session = await requirePermission(PERMISSIONS.capa.create);
+    supabase = session.supabase;
+    user = session.user;
+    organizationId = session.profile.organization_id;
+  } catch (error) {
+    const { body, status } = authzResponse(error);
+    return NextResponse.json(body, { status });
+  }
 
   const formData = await req.formData();
   const description = String(formData.get("description") ?? "").trim();
@@ -88,21 +85,20 @@ export async function POST(req: Request) {
 
   // Upload photo if provided
   if (photo && photo.size > 0) {
-    const ext = photo.name.split(".").pop() ?? "jpg";
-    const path = `${organizationId}/${ncId}/quick-${Date.now()}.${ext}`;
-    const buffer = Buffer.from(await photo.arrayBuffer());
-    const { error: uploadError } = await supabase.storage
-      .from("nc-photos")
-      .upload(path, buffer, { contentType: photo.type, upsert: true });
+    const { uploadPrivateObject } = await import("@/lib/storage/private");
+    const uploaded = await uploadPrivateObject(supabase, {
+      bucket: "nc-photos",
+      organizationId,
+      entityId: ncId,
+      file: photo,
+      upsert: true,
+    });
 
-    if (!uploadError) {
-      const { data: urlData } = supabase.storage
-        .from("nc-photos")
-        .getPublicUrl(path);
+    if (!("error" in uploaded)) {
       await supabase.from("nc_photos").insert({
         nc_id: ncId,
         organization_id: organizationId,
-        photo_url: urlData.publicUrl,
+        photo_url: uploaded.path,
         description: "Captura rápida",
       });
     }

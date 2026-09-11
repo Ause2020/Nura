@@ -9,6 +9,7 @@
 
 # next.js
 /.next/
+/.next-verify/
 /out/
 
 # production
@@ -25,6 +26,9 @@ yarn-error.log*
 
 # local env files
 .env*.local
+
+# supabase cli cache
+supabase/.temp/
 
 # vercel
 .vercel

@@ -4,7 +4,6 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { createClient } from "@/lib/supabase/client";
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -30,15 +29,18 @@ export function ForgotPasswordForm() {
     }
 
     setLoading(true);
-    const supabase = createClient();
-    const redirectTo = `${window.location.origin}/auth/callback?next=/recuperar/nueva`;
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(
-      email.trim(),
-      { redirectTo }
-    );
+    const resetRes = await fetch("/api/auth/forgot-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: email.trim() }),
+    });
 
     setLoading(false);
-    if (resetError) {
+    if (resetRes.status === 429) {
+      setError("Demasiados intentos. Intenta de nuevo en unos minutos.");
+      return;
+    }
+    if (!resetRes.ok) {
       setError("No pudimos enviar el correo. Intenta de nuevo en unos minutos.");
       return;
     }

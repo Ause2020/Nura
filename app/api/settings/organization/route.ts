@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
-import { requireOrgAdmin } from "@/lib/team/auth";
+import { PERMISSIONS } from "@/lib/auth/permissions";
+import { authzResponse, requirePermission } from "@/lib/auth/require-permission";
 import type { EmployeesRange, Industry } from "@/types/database";
 
 export async function PATCH(request: Request) {
   try {
-    const { supabase, profile } = await requireOrgAdmin();
+    const { supabase, profile } = await requirePermission(
+      PERMISSIONS.settings.manage
+    );
     const body = await request.json();
 
     const patch: Record<string, unknown> = {};
@@ -71,8 +74,11 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json({ organization: data });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Error al guardar";
-    const status = message.includes("administradores") ? 403 : 500;
-    return NextResponse.json({ error: message }, { status });
+    const { body, status } = authzResponse(e);
+    if (status !== 400) return NextResponse.json(body, { status });
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Error al guardar" },
+      { status: 500 }
+    );
   }
 }

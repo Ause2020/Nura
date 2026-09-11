@@ -11,10 +11,11 @@ import type { Audit, AuditChecklistItem } from "@/types/database";
 import { getSessionUser } from "@/lib/auth/cached-session";
 
 interface PageProps {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 export default async function EjecutarAuditoriaPage({ params }: PageProps) {
+  const { id } = await params;
   const orgId = await requireOrganizationId();
   const supabase = await createClient();
 
@@ -24,7 +25,7 @@ export default async function EjecutarAuditoriaPage({ params }: PageProps) {
   const { data: auditData } = await supabase
     .from("audits")
     .select("*")
-    .eq("id", params.id)
+    .eq("id", id)
     .eq("organization_id", orgId)
     .maybeSingle();
 
@@ -32,14 +33,14 @@ export default async function EjecutarAuditoriaPage({ params }: PageProps) {
   if (!audit) notFound();
 
   if (audit.status === "completed") {
-    redirect(`/auditorias/${params.id}/informe`);
+    redirect(`/auditorias/${id}/informe`);
   }
 
   if (audit.status === "cancelled") {
     redirect("/auditorias");
   }
 
-  let { data: itemsData } = await supabase
+  const { data: itemsData } = await supabase
     .from("audit_checklist_items")
     .select("*")
     .eq("audit_id", audit.id)

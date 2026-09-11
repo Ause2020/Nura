@@ -1,11 +1,13 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { hasPermission, type Permission } from "@/lib/auth/permissions";
 import type { UserRole } from "@/types/database";
 
 interface RoleGateProps {
   role: UserRole;
-  allowed: UserRole[];
+  allowed?: UserRole[];
+  permission?: Permission;
   children: ReactNode;
   fallback?: ReactNode;
 }
@@ -13,9 +15,15 @@ interface RoleGateProps {
 export function RoleGate({
   role,
   allowed,
+  permission,
   children,
   fallback = null,
 }: RoleGateProps) {
-  if (!allowed.includes(role)) return <>{fallback}</>;
+  const permitted = permission
+    ? hasPermission(role, permission)
+    : allowed
+      ? allowed.includes(role)
+      : false;
+  if (!permitted) return <>{fallback}</>;
   return <>{children}</>;
 }

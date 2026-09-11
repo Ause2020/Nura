@@ -13,12 +13,14 @@ import type {
   UserRole,
 } from "@/types/database";
 import { getSessionUser } from "@/lib/auth/cached-session";
+import { canManageQuality } from "@/lib/auth/permissions";
 
 interface PageProps {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 export default async function EditarPlantillaAuditoriaPage({ params }: PageProps) {
+  const { id } = await params;
   const orgId = await requireOrganizationId();
   const supabase = await createClient();
 
@@ -32,14 +34,14 @@ export default async function EditarPlantillaAuditoriaPage({ params }: PageProps
     .single();
 
   const role = (profileData as { role: UserRole } | null)?.role ?? "operator";
-  if (role !== "admin" && role !== "quality_manager") {
+  if (!canManageQuality(role)) {
     redirect("/auditorias/plantillas");
   }
 
   const { data: templateData } = await supabase
     .from("audit_templates")
     .select("*")
-    .eq("id", params.id)
+    .eq("id", id)
     .eq("organization_id", orgId)
     .maybeSingle();
 

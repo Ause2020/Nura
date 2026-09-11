@@ -7,6 +7,7 @@ import {
   EVIDENCE_MAX_BYTES,
 } from "@/lib/haccp-plan/constants";
 import type { EvidenceFile, TeamMember } from "@/lib/haccp-plan/types";
+import { PrivateFileLink } from "@/components/storage/private-file";
 
 export function Step1Team({
   team,
@@ -134,14 +135,13 @@ function TrainingEvidenceCell({
         <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1">
           <FileText className="h-3.5 w-3.5 text-sage shrink-0" />
           {evidence.url ? (
-            <a
-              href={evidence.url}
-              target="_blank"
-              rel="noreferrer"
+            <PrivateFileLink
+              kind="haccp-training"
+              id={member.id}
               className="flex-1 truncate text-forest hover:underline"
             >
               {evidence.name}
-            </a>
+            </PrivateFileLink>
           ) : (
             <span className="flex-1 truncate text-ink-light">{evidence.name}</span>
           )}

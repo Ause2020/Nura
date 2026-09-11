@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { isOrgRole } from "@/lib/auth/permissions";
+import { authzResponse } from "@/lib/auth/require-permission";
 import { requireOrgAdmin } from "@/lib/team/auth";
 import { assertTeamCapacity } from "@/lib/team/invitations";
 import { createTeamMember } from "@/lib/team/members";
@@ -29,7 +31,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!["admin", "quality_manager", "operator"].includes(role)) {
+    if (!isOrgRole(role)) {
       return NextResponse.json({ error: "Rol inválido" }, { status: 400 });
     }
 
@@ -45,13 +47,14 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ user: result });
   } catch (e) {
+    const mapped = authzResponse(e);
+    if (mapped.status === 401 || mapped.status === 403) {
+      return NextResponse.json(mapped.body, { status: mapped.status });
+    }
     const message =
       e instanceof Error ? e.message : "Error al crear usuario";
-    const status = message.includes("administradores")
-      ? 403
-      : message.includes("registrado") || message.includes("Límite")
-        ? 409
-        : 500;
+    const status =
+      message.includes("registrado") || message.includes("Límite") ? 409 : 500;
     return NextResponse.json({ error: message }, { status });
   }
 }

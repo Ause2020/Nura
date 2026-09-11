@@ -1,3 +1,4 @@
+import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
 import type { DocumentStatus, UserRole } from "@/types/database";
 
 export async function computeDocumentSignatureHash(input: {
@@ -25,15 +26,18 @@ export async function computeDocumentSignatureHash(input: {
     .join("");
 }
 
-const TRANSITION_ROLES: Record<string, UserRole[]> = {
-  "draft->in_review": ["admin", "quality_manager"],
-  "in_review->approved": ["admin", "quality_manager"],
-  "in_review->draft": ["admin", "quality_manager"],
-  "approved->published": ["admin", "quality_manager"],
-  "approved->draft": ["admin"],
-  "published->obsolete": ["admin"],
-  "published->draft": ["admin", "quality_manager"],
-};
+const RESTRICTED_TRANSITIONS = new Set([
+  "approved->draft",
+  "published->obsolete",
+]);
+
+const MANAGE_TRANSITIONS = new Set([
+  "draft->in_review",
+  "in_review->approved",
+  "in_review->draft",
+  "approved->published",
+  "published->draft",
+]);
 
 export function canTransitionStatus(
   role: UserRole,
@@ -41,7 +45,13 @@ export function canTransitionStatus(
   to: DocumentStatus
 ): boolean {
   const key = `${from}->${to}`;
-  return TRANSITION_ROLES[key]?.includes(role) ?? false;
+  if (RESTRICTED_TRANSITIONS.has(key)) {
+    return hasPermission(role, PERMISSIONS.documents.transitionRestricted);
+  }
+  if (MANAGE_TRANSITIONS.has(key)) {
+    return hasPermission(role, PERMISSIONS.documents.manage);
+  }
+  return false;
 }
 
 export function getAvailableTransitions(
@@ -97,18 +107,18 @@ export async function uploadDocumentFile(
   documentId: string,
   file: File
 ): Promise<{ fileUrl: string; fileName: string } | { error: string }> {
-  const ext = file.name.split(".").pop() ?? "pdf";
-  const safeName = file.name.replace(/[^\w.\-() ]+/g, "_");
-  const path = `${organizationId}/${documentId}/${Date.now()}-${safeName || `archivo.${ext}`}`;
+  const { uploadPrivateObject } = await import("@/lib/storage/private");
+  const uploaded = await uploadPrivateObject(supabase, {
+    bucket: DOCUMENTS_BUCKET,
+    organizationId,
+    entityId: documentId,
+    file,
+    upsert: true,
+  });
 
-  const { error: uploadError } = await supabase.storage
-    .from(DOCUMENTS_BUCKET)
-    .upload(path, file, { upsert: true });
-
-  if (uploadError) {
-    return { error: uploadError.message };
+  if ("error" in uploaded) {
+    return { error: uploaded.error };
   }
 
-  const { data } = supabase.storage.from(DOCUMENTS_BUCKET).getPublicUrl(path);
-  return { fileUrl: data.publicUrl, fileName: file.name };
+  return { fileUrl: uploaded.path, fileName: file.name };
 }

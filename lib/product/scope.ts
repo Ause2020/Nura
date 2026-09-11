@@ -1,7 +1,6 @@
 /**
  * Superficie de producto: Nura como sistema de inocuidad / HACCP.
- * Los módulos fuera del núcleo se ocultan (rutas redirigen) pero el código
- * y las tablas se conservan por si se reactivan.
+ * Prefijos de módulos retirados: el middleware redirige bookmarks viejos.
  */
 
 export const CORE_NAV_ITEMS = [

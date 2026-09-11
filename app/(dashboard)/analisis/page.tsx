@@ -4,6 +4,7 @@ import { AnalisisView } from "@/components/ai-insights/analisis-view";
 import { isAiConfigured } from "@/lib/ai/anthropic";
 import { loadOrCreateDailyInsight } from "@/lib/ai-insights/generate";
 import { getSessionProfile, getSessionUser } from "@/lib/auth/cached-session";
+import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
 import { requireOrganizationId } from "@/lib/haccp/auth";
 import { createClient } from "@/lib/supabase/server";
 
@@ -14,7 +15,9 @@ export default async function AnalisisPage() {
     getSessionProfile(),
   ]);
   if (!user) redirect("/login");
-  if (profile?.role === "operator") redirect("/dashboard");
+  if (!hasPermission(profile?.role, PERMISSIONS.analysis.read)) {
+    redirect("/dashboard");
+  }
 
   const supabase = await createClient();
   const { insight, missingTable } = await loadOrCreateDailyInsight(

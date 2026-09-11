@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { rateLimitResponse } from "@/lib/rate-limit";
 import { createClient } from "@/lib/supabase/server";
 import {
   acceptInvitation,
@@ -11,6 +12,14 @@ export async function POST(request: Request) {
     const token = String(body.token ?? "").trim();
     const fullName = String(body.fullName ?? "").trim();
     const password = String(body.password ?? "");
+
+    const limited = await rateLimitResponse({
+      request,
+      token,
+      only: ["token"],
+      policy: "AUTH",
+    });
+    if (limited) return limited;
 
     if (!token) {
       return NextResponse.json({ error: "Token inválido" }, { status: 400 });

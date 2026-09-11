@@ -64,11 +64,17 @@ export function FindingDrawer({
   async function handlePhoto(file: File) {
     const { createClient } = await import("@/lib/supabase/client");
     const supabase = createClient();
-    const ext = file.name.split(".").pop() ?? "jpg";
-    const path = `${organizationId}/${auditId}/${itemId}-${Date.now()}.${ext}`;
-    await supabase.storage.from("audit-photos").upload(path, file, { upsert: true });
-    const { data } = supabase.storage.from("audit-photos").getPublicUrl(path);
-    setPhotoUrl(data.publicUrl);
+    const { uploadPrivateObject } = await import("@/lib/storage/private");
+    const uploaded = await uploadPrivateObject(supabase, {
+      bucket: "audit-photos",
+      organizationId,
+      entityId: `${auditId}/${itemId}`,
+      file,
+      upsert: true,
+    });
+    if (!("error" in uploaded)) {
+      setPhotoUrl(uploaded.path);
+    }
   }
 
   return (

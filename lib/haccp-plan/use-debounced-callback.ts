@@ -7,7 +7,7 @@ export function useDebouncedCallback<T extends (...args: never[]) => void>(
   delay: number
 ) {
   const fnRef = useRef(fn);
-  const timerRef = useRef<number>();
+  const timerRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     fnRef.current = fn;

@@ -8,6 +8,7 @@ import { requireOrganizationId } from "@/lib/haccp/auth";
 import { createClient } from "@/lib/supabase/server";
 import type { UserRole } from "@/types/database";
 import { getSessionUser } from "@/lib/auth/cached-session";
+import { canManageQuality } from "@/lib/auth/permissions";
 
 export default async function NuevaPlantillaAuditoriaPage() {
   const orgId = await requireOrganizationId();
@@ -23,7 +24,7 @@ export default async function NuevaPlantillaAuditoriaPage() {
     .single();
 
   const role = (profileData as { role: UserRole } | null)?.role ?? "operator";
-  if (role !== "admin" && role !== "quality_manager") {
+  if (!canManageQuality(role)) {
     redirect("/auditorias/plantillas");
   }
 

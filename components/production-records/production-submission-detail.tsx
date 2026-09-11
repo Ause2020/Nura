@@ -9,6 +9,7 @@ import {
   SUBMISSION_STATUS_LABELS,
   SYNC_STATUS_LABELS,
 } from "@/lib/production-records/constants";
+import { PrivateFileLink } from "@/components/storage/private-file";
 import type {
   ProductionFormSubmission,
   ProductionFormSubmissionValue,
@@ -122,14 +123,13 @@ export function ProductionSubmissionDetail({
                 <td className="px-4 py-2 text-ink">{row.field_label}</td>
                 <td className="px-4 py-2">
                   {row.field_type === "photo" && row.value_text ? (
-                    <a
-                      href={row.value_text}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <PrivateFileLink
+                      kind="production-photo"
+                      id={row.id}
                       className="text-forest hover:underline text-xs"
                     >
                       Ver foto
-                    </a>
+                    </PrivateFileLink>
                   ) : (
                     <span className="text-ink-light">{formatValue(row)}</span>
                   )}

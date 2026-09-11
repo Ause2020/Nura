@@ -138,6 +138,12 @@ UNION ALL SELECT '022 CAPA workflow',
   ELSE '✗ EJECUTA: 022_capa_workflow.sql (tras 021)'
   END
 
+UNION ALL SELECT '035 storage privado',
+  CASE WHEN EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'storage_is_org_object')
+  THEN '✓ YA APLICADA'
+  ELSE '✗ EJECUTA: 035_private_storage_tenant_isolation.sql'
+  END
+
 UNION ALL SELECT '021 registros producción',
   CASE WHEN EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'production_form_templates')
   THEN '✓ YA APLICADA'

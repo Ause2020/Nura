@@ -7,12 +7,15 @@ import {
   EVIDENCE_MAX_BYTES,
 } from "@/lib/haccp-plan/constants";
 import type { EvidenceFile, PlanValidation } from "@/lib/haccp-plan/types";
+import { PrivateFileLink } from "@/components/storage/private-file";
 
 export function Step5Validation({
+  planId,
   validation,
   onChange,
   onUpload,
 }: {
+  planId: string;
   validation: PlanValidation;
   onChange: (next: PlanValidation) => void;
   onUpload: (file: File) => Promise<EvidenceFile | null>;
@@ -57,7 +60,18 @@ export function Step5Validation({
             className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-xs text-ink"
           >
             <FileText className="h-4 w-4 text-sage" />
-            <span className="flex-1 truncate">{file.name}</span>
+            {file.url ? (
+              <PrivateFileLink
+                kind="haccp-validation-file"
+                id={planId}
+                fileId={file.id}
+                className="flex-1 truncate text-forest hover:underline"
+              >
+                {file.name}
+              </PrivateFileLink>
+            ) : (
+              <span className="flex-1 truncate">{file.name}</span>
+            )}
             <button
               type="button"
               onClick={() =>

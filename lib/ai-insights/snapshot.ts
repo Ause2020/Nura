@@ -88,9 +88,6 @@ export async function collectQualitySnapshot(
     pccRes,
     submissionsRes,
     stepDataRes,
-    completionsRes,
-    coursesRes,
-    profilesRes,
   ] = await Promise.all([
     client
       .from("haccp_plans")
@@ -126,19 +123,6 @@ export async function collectQualitySnapshot(
       .select("step_id, data")
       .eq("organization_id", organizationId)
       .in("step_id", [7, 8, 9]),
-    client
-      .from("training_completions")
-      .select("user_id, course_id, valid_until, passed")
-      .eq("organization_id", organizationId)
-      .eq("passed", true),
-    client
-      .from("training_courses")
-      .select("id, title")
-      .eq("organization_id", organizationId),
-    client
-      .from("profiles")
-      .select("id, full_name")
-      .eq("organization_id", organizationId),
   ]);
 
   const plan = (planRes.data ?? null) as {
@@ -373,50 +357,6 @@ export async function collectQualitySnapshot(
         )
       : 0;
 
-  const nameByUser = new Map(
-    ((profilesRes.data ?? []) as { id: string; full_name: string }[]).map((p) => [
-      p.id,
-      p.full_name,
-    ])
-  );
-  const titleByCourse = new Map(
-    ((coursesRes.data ?? []) as { id: string; title: string }[]).map((c) => [
-      c.id,
-      c.title,
-    ])
-  );
-
-  const latestByUserCourse = new Map<
-    string,
-    { user_id: string; course_id: string; valid_until: string | null }
-  >();
-  for (const row of (completionsRes.data ?? []) as {
-    user_id: string;
-    course_id: string;
-    valid_until: string | null;
-  }[]) {
-    if (!row.valid_until) continue;
-    const key = `${row.user_id}:${row.course_id}`;
-    const existing = latestByUserCourse.get(key);
-    if (!existing || row.valid_until > (existing.valid_until ?? "")) {
-      latestByUserCourse.set(key, row);
-    }
-  }
-
-  const expiredCompletions: QualitySnapshot["training"]["expiredCompletions"] = [];
-  const expiringSoon: QualitySnapshot["training"]["expiringSoon"] = [];
-  for (const row of Array.from(latestByUserCourse.values())) {
-    if (!row.valid_until) continue;
-    const days = daysBetween(row.valid_until, now);
-    const item = {
-      userName: nameByUser.get(row.user_id) ?? "Colaborador",
-      courseTitle: titleByCourse.get(row.course_id) ?? "Curso",
-      validUntil: row.valid_until,
-    };
-    if (days > 0) expiredCompletions.push(item);
-    else if (days >= -30) expiringSoon.push(item);
-  }
-
   return {
     generatedAt: now.toISOString(),
     periodDate: periodDateInSantiago(now),
@@ -466,8 +406,8 @@ export async function collectQualitySnapshot(
       overdueItems,
     },
     training: {
-      expiredCompletions: expiredCompletions.slice(0, 8),
-      expiringSoon: expiringSoon.slice(0, 8),
+      expiredCompletions: [],
+      expiringSoon: [],
     },
   };
 }

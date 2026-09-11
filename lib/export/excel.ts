@@ -1,17 +1,19 @@
 /**
- * Reusable Excel/CSV export helper.
+ * Exportación Excel/CSV write-only.
+ * No parsea archivos de usuario. Reemplaza sheetjs/xlsx@0.18.5
+ * (CVE-2023-30533, CVE-2024-22363).
  *
- * Usage:
- *   const { downloadExcel } = await import("@/lib/export/excel");
- *   await downloadExcel({ filename: "hallazgos", sheets: [{ name: "Hallazgos", rows }] });
- *
- * Compatible with any module — just pass columns + rows.
- * Handles download client-side; no server/API needed.
+ * Los valores de usuario se sanean contra CSV/formula injection antes de escribir.
  */
+
+import {
+  buildCsvString,
+  buildXlsxBuffer,
+  sanitizeDownloadFilename,
+} from "./spreadsheet-sanitize.mjs";
 
 export interface ExcelColumn {
   header: string;
-  /** Width in characters (default 20) */
   width?: number;
 }
 
@@ -22,42 +24,16 @@ export interface ExcelSheet {
 }
 
 export interface ExcelExportOptions {
-  /** File name without extension */
   filename: string;
   sheets: ExcelSheet[];
 }
 
 export async function downloadExcel(options: ExcelExportOptions): Promise<void> {
-  const XLSX = await import("xlsx");
-
-  const wb = XLSX.utils.book_new();
-
-  for (const sheet of options.sheets) {
-    // Build data: header row + data rows
-    const headers = sheet.columns.map((c) => c.header);
-    const data = [headers, ...sheet.rows.map((row) => row.map((v) => v ?? ""))];
-
-    const ws = XLSX.utils.aoa_to_sheet(data);
-
-    // Column widths
-    ws["!cols"] = sheet.columns.map((c) => ({ wch: c.width ?? 22 }));
-
-    // Freeze top row
-    ws["!freeze"] = { xSplit: 0, ySplit: 1 };
-
-    // AutoFilter on header row
-    const range = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
-    ws["!autofilter"] = { ref: XLSX.utils.encode_range(range) };
-
-    XLSX.utils.book_append_sheet(wb, ws, sheet.name);
-  }
-
-  const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const buf = await buildXlsxBuffer(options);
   const blob = new Blob([buf], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
-
-  triggerDownload(blob, `${options.filename}.xlsx`);
+  triggerDownload(blob, `${sanitizeDownloadFilename(options.filename)}.xlsx`);
 }
 
 export async function downloadCsv(
@@ -65,23 +41,9 @@ export async function downloadCsv(
   columns: ExcelColumn[],
   rows: (string | number | null | undefined)[][]
 ): Promise<void> {
-  const headers = columns.map((c) => c.header);
-  const csvRows = [headers, ...rows.map((row) => row.map((v) => v ?? ""))];
-  const csv = csvRows
-    .map((row) =>
-      row
-        .map((v) => {
-          const s = String(v);
-          return s.includes(",") || s.includes('"') || s.includes("\n")
-            ? `"${s.replaceAll('"', '""')}"`
-            : s;
-        })
-        .join(",")
-    )
-    .join("\n");
-
+  const csv = buildCsvString(columns, rows);
   const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-  triggerDownload(blob, `${filename}.csv`);
+  triggerDownload(blob, `${sanitizeDownloadFilename(filename)}.csv`);
 }
 
 function triggerDownload(blob: Blob, filename: string): void {

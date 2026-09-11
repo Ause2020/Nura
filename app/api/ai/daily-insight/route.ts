@@ -2,26 +2,19 @@ import { NextResponse } from "next/server";
 import { generateDailyInsight } from "@/lib/ai-insights/generate";
 import { isInsightFresh, periodDateInSantiago } from "@/lib/ai-insights/period";
 import { getInsightForDate, getLatestInsight } from "@/lib/ai-insights/store";
-import { createClient } from "@/lib/supabase/server";
+import { PERMISSIONS } from "@/lib/auth/permissions";
+import { authzResponse, requirePermission } from "@/lib/auth/require-permission";
 
 export async function GET() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("organization_id, role")
-    .eq("id", user.id)
-    .single();
-
-  const orgId = (profile as { organization_id: string | null } | null)?.organization_id;
-  const role = (profile as { role?: string } | null)?.role;
-  if (!orgId) return NextResponse.json({ error: "No organization" }, { status: 400 });
-  if (role === "operator") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  let supabase;
+  let orgId: string;
+  try {
+    const session = await requirePermission(PERMISSIONS.analysis.read);
+    supabase = session.supabase;
+    orgId = session.profile.organization_id;
+  } catch (error) {
+    const { body, status } = authzResponse(error);
+    return NextResponse.json(body, { status });
   }
 
   const insight = await getLatestInsight(orgId, supabase);
@@ -29,23 +22,15 @@ export async function GET() {
 }
 
 export async function POST() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("organization_id, role")
-    .eq("id", user.id)
-    .single();
-
-  const orgId = (profile as { organization_id: string | null } | null)?.organization_id;
-  const role = (profile as { role?: string } | null)?.role;
-  if (!orgId) return NextResponse.json({ error: "No organization" }, { status: 400 });
-  if (role === "operator") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  let supabase;
+  let orgId: string;
+  try {
+    const session = await requirePermission(PERMISSIONS.analysis.read);
+    supabase = session.supabase;
+    orgId = session.profile.organization_id;
+  } catch (error) {
+    const { body, status } = authzResponse(error);
+    return NextResponse.json(body, { status });
   }
 
   const today = await getInsightForDate(orgId, periodDateInSantiago(), supabase);

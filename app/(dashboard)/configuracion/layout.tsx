@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { SettingsNav } from "@/components/settings/settings-nav";
 import { ModuleHeader } from "@/components/layout/header";
 import { getSessionProfile, getSessionUser } from "@/lib/auth/cached-session";
+import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
 
 export default async function ConfiguracionLayout({
   children,
@@ -15,7 +16,7 @@ export default async function ConfiguracionLayout({
 
   if (!user) redirect("/login");
 
-  if (profile?.role !== "admin") {
+  if (!hasPermission(profile?.role, PERMISSIONS.settings.manage)) {
     redirect("/dashboard");
   }
 

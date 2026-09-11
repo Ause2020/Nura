@@ -38,4 +38,8 @@
 -- Posteriores (si faltan):
 --   033_ai_daily_insights.sql   ← briefing diario de IA (/analisis)
 --   034_monitoring_qr_ocr.sql   ← QR de terreno + origen de registros
+--   035_private_storage_tenant_isolation.sql ← buckets privados + RLS por org
+--   036_rbac_org_roles.sql                  ← RBAC por rol de organización
+--   037_rate_limiting.sql                   ← rate limit distribuido + log de abuso
+--   038_drop_unused_storage_buckets.sql     ← quita lab-reports / supplier-docs / complaint-photos
 -- ═══════════════════════════════════════════════════════════════════

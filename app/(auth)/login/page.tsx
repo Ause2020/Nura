@@ -28,11 +28,12 @@ function InfoNotice({ info }: { info?: string }) {
   return null;
 }
 
-export default function LoginPage({
+export default async function LoginPage({
   searchParams,
 }: {
-  searchParams?: { info?: string };
+  searchParams: Promise<{ info?: string }>;
 }) {
+  const query = await searchParams;
   return (
     <AuthSplitLayout
       title="Iniciar sesión"
@@ -46,7 +47,7 @@ export default function LoginPage({
         </p>
       }
     >
-      <InfoNotice info={searchParams?.info} />
+      <InfoNotice info={query.info} />
       <Suspense fallback={<div className="h-40 animate-pulse bg-zinc-100 rounded-md" />}>
         <LoginForm />
       </Suspense>

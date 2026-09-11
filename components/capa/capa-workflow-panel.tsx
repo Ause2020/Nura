@@ -17,6 +17,7 @@ import {
   isStageComplete,
   validateStageAdvance,
 } from "@/lib/capa/workflow";
+import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import type {
@@ -93,7 +94,7 @@ export function CapaWorkflowPanel({
   const [recurrence, setRecurrence] = useState(nc.recurrence);
 
   const currentStage = nc.capa_stage;
-  const canCloseRole = userRole === "admin" || userRole === "quality_manager";
+  const canCloseRole = hasPermission(userRole, PERMISSIONS.capa.close);
   const profileMap = useMemo(
     () => new Map(members.map((m) => [m.id, m.full_name])),
     [members]

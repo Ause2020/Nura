@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
-import { requireOrgAdmin } from "@/lib/team/auth";
+import { PERMISSIONS } from "@/lib/auth/permissions";
+import { authzResponse, requirePermission } from "@/lib/auth/require-permission";
 
 export async function PATCH(request: Request) {
   try {
-    const { supabase, profile } = await requireOrgAdmin();
+    const { supabase, profile } = await requirePermission(
+      PERMISSIONS.settings.manage
+    );
     const body = await request.json();
 
     const patch: Record<string, boolean> = {};
@@ -65,8 +68,13 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json({ preferences: result });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Error al guardar";
-    const status = message.includes("administradores") ? 403 : 500;
-    return NextResponse.json({ error: message }, { status });
+    const mapped = authzResponse(e);
+    if (mapped.status === 401 || mapped.status === 403) {
+      return NextResponse.json(mapped.body, { status: mapped.status });
+    }
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Error al guardar" },
+      { status: 500 }
+    );
   }
 }

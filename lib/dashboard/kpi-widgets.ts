@@ -1,29 +1,10 @@
 import { getReviewAlert } from "@/lib/documents/utils";
 import { isPastDue, isDueWithinHours } from "@/lib/capa/utils";
-import { filterOverdueComplaints } from "@/lib/complaints/analytics";
-import { getComplaintTypeLabel } from "@/lib/complaints/constants";
-import {
-  buildCompetencyMatrix,
-  summarizeMatrixCompliance,
-} from "@/lib/training/competency-matrix";
-import {
-  computeDocStatus,
-  isEvaluationOverdue,
-} from "@/lib/suppliers/utils";
 import { startOfDay } from "@/lib/dashboard/utils";
 import type {
   Audit,
   ControlledDocument,
-  CustomerComplaint,
-  MockRecallSimulation,
   Nonconformity,
-  Profile,
-  Supplier,
-  SupplierDocument,
-  TrainingAssignment,
-  TrainingCompletion,
-  TrainingCourse,
-  TrainingRoleRequirement,
 } from "@/types/database";
 
 export type KpiWidgetStatus = "success" | "warning" | "danger";
@@ -190,142 +171,6 @@ export function computeAuditWidget(audits: Audit[]): ModuleKpiWidget {
     subtitle: last ? `${last.title} · ${trend}` : "Sin auditorías completadas",
     status,
     href: last ? `/auditorias/${last.id}/informe` : "/auditorias",
-  };
-}
-
-export function computeRecallWidget(
-  simulations: MockRecallSimulation[]
-): ModuleKpiWidget {
-  const completed = simulations
-    .filter((s) => s.status === "completed" && s.completed_at)
-    .sort(
-      (a, b) =>
-        new Date(b.completed_at!).getTime() -
-        new Date(a.completed_at!).getTime()
-    );
-
-  const last = completed[0];
-
-  if (!last) {
-    return {
-      id: "recall",
-      label: "Simulacro de retiro",
-      value: "—",
-      subtitle: "Sin simulacros completados",
-      status: "warning",
-      href: "/trazabilidad/simulacro",
-    };
-  }
-
-  const passed = last.passed_goal === true;
-  const hours = last.elapsed_seconds
-    ? (last.elapsed_seconds / 3600).toFixed(1)
-    : "?";
-
-  return {
-    id: "recall",
-    label: "Simulacro de retiro",
-    value: passed ? "Cumple" : "No cumple",
-    subtitle: `${new Date(last.completed_at!).toLocaleDateString("es")} · ${hours}h (meta ${last.goal_hours ?? 4}h)`,
-    status: passed ? "success" : "danger",
-    href: `/trazabilidad/simulacro/${last.id}`,
-  };
-}
-
-export function computeSuppliersWidget(
-  suppliers: Supplier[],
-  documents: SupplierDocument[]
-): ModuleKpiWidget {
-  const activeSuppliers = suppliers.filter(
-    (s) => s.status === "approved" || s.status === "conditional"
-  );
-
-  let expiredDocs = 0;
-  let expiringDocs = 0;
-  for (const doc of documents) {
-    const st = computeDocStatus(doc.expiry_date);
-    if (st === "expired") expiredDocs++;
-    else if (st === "expiring") expiringDocs++;
-  }
-
-  const criticalOverdueEval = activeSuppliers.filter(
-    (s) =>
-      s.criticality === "critical" &&
-      isEvaluationOverdue(s.next_evaluation_date)
-  ).length;
-
-  let status: KpiWidgetStatus = "success";
-  if (expiredDocs > 0 || criticalOverdueEval > 0) status = "danger";
-  else if (expiringDocs > 0) status = "warning";
-
-  return {
-    id: "suppliers",
-    label: "Proveedores",
-    value: String(expiredDocs + expiringDocs),
-    subtitle: `${expiredDocs} docs. vencidos · ${expiringDocs} por vencer · ${criticalOverdueEval} críticos sin eval.`,
-    status,
-    href: "/proveedores",
-  };
-}
-
-export function computeTrainingWidget(input: {
-  members: Pick<Profile, "id" | "full_name" | "role">[];
-  courses: TrainingCourse[];
-  requirements: TrainingRoleRequirement[];
-  assignments: TrainingAssignment[];
-  completions: TrainingCompletion[];
-}): ModuleKpiWidget {
-  const cells = buildCompetencyMatrix(input);
-  const { percent, current, total } = summarizeMatrixCompliance(cells);
-
-  return {
-    id: "training",
-    label: "Matriz capacitación",
-    value: `${percent}%`,
-    subtitle: `${current} de ${total} competencias al día`,
-    status: statusFromThresholds(percent, 90, 75),
-    href: "/capacitacion/matriz",
-  };
-}
-
-export function computeComplaintsWidget(
-  complaints: CustomerComplaint[]
-): ModuleKpiWidget {
-  const open = complaints.filter((c) => c.status !== "closed");
-  const overdue = filterOverdueComplaints(open).length;
-  const criticalOpen = open.filter(
-    (c) => c.severity === "safety_critical"
-  ).length;
-
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
-  const thisMonth = complaints.filter(
-    (c) => new Date(c.received_date) >= monthStart
-  );
-  const typeCounts = new Map<string, number>();
-  for (const c of thisMonth) {
-    typeCounts.set(c.complaint_type, (typeCounts.get(c.complaint_type) ?? 0) + 1);
-  }
-  const topType = Array.from(typeCounts.entries()).sort(
-    (a, b) => b[1] - a[1]
-  )[0];
-
-  let status: KpiWidgetStatus = "success";
-  if (overdue > 0 || criticalOpen > 0) status = "danger";
-  else if (open.length > 3) status = "warning";
-
-  return {
-    id: "complaints",
-    label: "Reclamos abiertos",
-    value: String(open.length),
-    subtitle:
-      topType && thisMonth.length > 0
-        ? `${overdue} SLA vencido · Top: ${getComplaintTypeLabel(topType[0] as Parameters<typeof getComplaintTypeLabel>[0])} (${topType[1]})`
-        : `${overdue} SLA vencido · ${criticalOpen} críticos`,
-    status,
-    href: "/reclamos",
-    kiosk: true,
   };
 }
 

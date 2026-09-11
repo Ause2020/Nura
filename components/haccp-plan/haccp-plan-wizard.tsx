@@ -283,14 +283,17 @@ export function HaccpPlanWizard({
           }}
           onUploadTraining={async (member, file) => {
             const supabase = createClient();
-            const path = `${organizationId}/${plan.id}/team/${member.id}/${crypto.randomUUID()}-${file.name}`;
-            const { error: uploadError } = await supabase.storage
-              .from("haccp-evidence")
-              .upload(path, file);
+            const { uploadPrivateObject } = await import("@/lib/storage/private");
+            const uploaded = await uploadPrivateObject(supabase, {
+              bucket: "haccp-evidence",
+              organizationId,
+              entityId: `${plan.id}/${member.id}`,
+              file,
+            });
             let evidence: EvidenceFile;
-            if (uploadError) {
+            if ("error" in uploaded) {
               setError(
-                "No se pudo subir la evidencia. Ejecuta la migración 032 y crea el bucket haccp-evidence."
+                "No se pudo subir la evidencia. Ejecuta la migración 035 y crea el bucket haccp-evidence."
               );
               evidence = {
                 id: crypto.randomUUID(),
@@ -300,12 +303,11 @@ export function HaccpPlanWizard({
                 date: new Date().toISOString(),
               };
             } else {
-              const { data } = supabase.storage.from("haccp-evidence").getPublicUrl(path);
               evidence = {
                 id: crypto.randomUUID(),
                 name: file.name,
                 type: file.type,
-                url: data.publicUrl,
+                url: uploaded.path,
                 date: new Date().toISOString(),
               };
               setError("");
@@ -400,6 +402,7 @@ export function HaccpPlanWizard({
 
       {currentStep === 5 && (
         <Step5Validation
+          planId={plan.id}
           validation={validation}
           onChange={(next) => {
             setValidation(next);
@@ -407,11 +410,14 @@ export function HaccpPlanWizard({
           }}
           onUpload={async (file) => {
             const supabase = createClient();
-            const path = `${organizationId}/${plan.id}/${crypto.randomUUID()}-${file.name}`;
-            const { error: uploadError } = await supabase.storage
-              .from("haccp-evidence")
-              .upload(path, file);
-            if (uploadError) {
+            const { uploadPrivateObject } = await import("@/lib/storage/private");
+            const uploaded = await uploadPrivateObject(supabase, {
+              bucket: "haccp-evidence",
+              organizationId,
+              entityId: plan.id,
+              file,
+            });
+            if ("error" in uploaded) {
               setError("No se pudo subir el archivo. Crea el bucket haccp-evidence en Storage.");
               const local: EvidenceFile = {
                 id: crypto.randomUUID(),
@@ -422,12 +428,11 @@ export function HaccpPlanWizard({
               };
               return local;
             }
-            const { data } = supabase.storage.from("haccp-evidence").getPublicUrl(path);
             return {
               id: crypto.randomUUID(),
               name: file.name,
               type: file.type,
-              url: data.publicUrl,
+              url: uploaded.path,
               date: new Date().toISOString(),
             };
           }}

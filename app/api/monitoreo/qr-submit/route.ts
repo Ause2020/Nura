@@ -3,6 +3,7 @@ import { getFieldMonitorContext } from "@/lib/production-records/qr-context";
 import { submitProductionRecord } from "@/lib/production-records/submit";
 import { computeOperatorSignatureHash } from "@/lib/production-records/utils";
 import type { FieldValuePayload, TemplateSnapshot } from "@/lib/production-records/utils";
+import { rateLimitResponse } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function POST(req: Request) {
@@ -19,6 +20,14 @@ export async function POST(req: Request) {
     values?: FieldValuePayload[];
     templateSnapshot?: TemplateSnapshot;
   };
+
+  const limited = await rateLimitResponse({
+    request: req,
+    token: body.token,
+    only: ["token"],
+    policy: "PUBLIC_FORM",
+  });
+  if (limited) return limited;
 
   if (!body.token || !body.monitorName?.trim()) {
     return NextResponse.json({ error: "token y monitorName son requeridos" }, { status: 400 });

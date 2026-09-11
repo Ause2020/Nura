@@ -8,8 +8,9 @@
  * Response: { fiveWhys: string[5], rootCause: string, suggestedActions: { description, type }[] }
  */
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { callClaude, parseAiJson, isAiConfigured } from "@/lib/ai/anthropic";
+import { PERMISSIONS } from "@/lib/auth/permissions";
+import { authzResponse, requirePermission } from "@/lib/auth/require-permission";
 
 // ─── Prompt ──────────────────────────────────────────────────────────────────
 // Designed to respond in Spanish, strict JSON output, no preamble.
@@ -76,10 +77,12 @@ export interface NcAnalysisResponse {
 // ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-  // Auth check
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    await requirePermission(PERMISSIONS.capa.manage);
+  } catch (error) {
+    const { body, status } = authzResponse(error);
+    return NextResponse.json(body, { status });
+  }
 
   if (!isAiConfigured()) {
     return NextResponse.json(

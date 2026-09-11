@@ -1,4 +1,5 @@
 import { isHiddenModulePath } from "@/lib/product/scope";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { updateSession } from "@/lib/supabase/middleware";
 import { canAccessPath } from "@/lib/team/permissions";
 import { NextResponse, type NextRequest } from "next/server";
@@ -48,6 +49,19 @@ export async function middleware(request: NextRequest) {
     userRole,
   } = await updateSession(request);
   const { pathname } = request.nextUrl;
+
+  try {
+    const rateLimited = await enforceRateLimit({
+      request,
+      pathname,
+      userId: user?.id ?? null,
+    });
+    if (rateLimited.response) {
+      return rateLimited.response;
+    }
+  } catch {
+    // Rate limiting must not take the app down.
+  }
 
   if (isHiddenModulePath(pathname)) {
     const target = request.nextUrl.clone();

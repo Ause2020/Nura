@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { MonitoreoHub } from "@/components/production-records/monitoreo-hub";
 import { getSessionProfile, getSessionUser } from "@/lib/auth/cached-session";
+import { canManageQuality } from "@/lib/auth/permissions";
 import { requireOrganizationId } from "@/lib/haccp/auth";
 import { isQrLinkActive } from "@/lib/production-records/qr";
 import { createClient } from "@/lib/supabase/server";
@@ -13,8 +14,7 @@ export default async function RegistrosPage() {
   ]);
   if (!user) redirect("/login");
 
-  const canManage =
-    profile?.role === "admin" || profile?.role === "quality_manager";
+  const canManage = canManageQuality(profile?.role);
   const supabase = await createClient();
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);

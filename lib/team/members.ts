@@ -69,8 +69,8 @@ export async function updateMemberRole(
   actorId: string,
   newRole: UserRole
 ) {
-  if (memberId === actorId && newRole !== "admin") {
-    throw new Error("No puedes quitarte el rol de administrador");
+  if (memberId === actorId) {
+    throw new Error("No puedes modificar tu propio rol");
   }
 
   const admin = createAdminClient();

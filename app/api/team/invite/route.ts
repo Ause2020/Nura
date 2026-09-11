@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { isOrgRole } from "@/lib/auth/permissions";
+import { authzResponse } from "@/lib/auth/require-permission";
 import { requireOrgAdmin } from "@/lib/team/auth";
 import {
   assertTeamCapacity,
@@ -22,7 +24,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Email inválido" }, { status: 400 });
     }
 
-    if (!["admin", "quality_manager", "operator"].includes(role)) {
+    if (!isOrgRole(role)) {
       return NextResponse.json({ error: "Rol inválido" }, { status: 400 });
     }
 
@@ -87,8 +89,11 @@ export async function POST(request: Request) {
       roleLabel: ROLE_LABELS[row.role],
     });
   } catch (e) {
+    const mapped = authzResponse(e);
+    if (mapped.status === 401 || mapped.status === 403) {
+      return NextResponse.json(mapped.body, { status: mapped.status });
+    }
     const message = e instanceof Error ? e.message : "Error al invitar";
-    const status = message.includes("administradores") ? 403 : 500;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

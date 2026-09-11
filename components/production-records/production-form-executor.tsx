@@ -39,6 +39,7 @@ type FieldState = Record<
     number?: string;
     json?: unknown;
     outOfRange?: boolean;
+    preview?: string;
   }
 >;
 
@@ -132,20 +133,27 @@ export function ProductionFormExecutor({
 
   async function uploadPhoto(fieldId: string, file: File) {
     const supabase = createClient();
-    const path = `${organizationId}/${template.id}/${fieldId}-${Date.now()}.${file.name.split(".").pop() ?? "jpg"}`;
-    const { error: uploadError } = await supabase.storage
-      .from(PHOTOS_BUCKET)
-      .upload(path, file, { upsert: true });
+    const { uploadPrivateObject } = await import("@/lib/storage/private");
+    const uploaded = await uploadPrivateObject(supabase, {
+      bucket: PHOTOS_BUCKET,
+      organizationId,
+      entityId: `${template.id}/${fieldId}`,
+      file,
+      upsert: true,
+    });
 
-    if (uploadError) {
-      setError(uploadError.message);
+    if ("error" in uploaded) {
+      setError(uploaded.error);
       return;
     }
 
-    const { data } = supabase.storage.from(PHOTOS_BUCKET).getPublicUrl(path);
     setValues((prev) => ({
       ...prev,
-      [fieldId]: { ...prev[fieldId], text: data.publicUrl },
+      [fieldId]: {
+        ...prev[fieldId],
+        text: uploaded.path,
+        preview: URL.createObjectURL(file),
+      },
     }));
   }
 
@@ -532,9 +540,10 @@ export function ProductionFormExecutor({
                           }}
                         />
                       </label>
-                      {state.text && (
+                      {state.preview && (
+                        // eslint-disable-next-line @next/next/no-img-element
                         <img
-                          src={state.text}
+                          src={state.preview}
                           alt={field.label}
                           className="rounded-md max-h-40 object-cover border border-border"
                         />

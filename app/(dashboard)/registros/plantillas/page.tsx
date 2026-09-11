@@ -4,6 +4,7 @@ import { requireOrganizationId } from "@/lib/haccp/auth";
 import { createClient } from "@/lib/supabase/server";
 import type { ProductionFormTemplate, UserRole } from "@/types/database";
 import { getSessionUser } from "@/lib/auth/cached-session";
+import { canManageQuality } from "@/lib/auth/permissions";
 
 export default async function RegistrosPlantillasPage() {
   const orgId = await requireOrganizationId();
@@ -19,7 +20,7 @@ export default async function RegistrosPlantillasPage() {
     .single();
 
   const role = (profileData as { role: UserRole } | null)?.role ?? "operator";
-  const canManage = role === "admin" || role === "quality_manager";
+  const canManage = canManageQuality(role);
 
   const [{ data: templatesData }, { data: submissionsData }] = await Promise.all([
     supabase

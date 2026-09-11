@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { PERMISSIONS } from "@/lib/auth/permissions";
+import { authzResponse, requirePermission } from "@/lib/auth/require-permission";
 import { submitProductionRecord } from "@/lib/production-records/submit";
 import {
   buildTemplateSnapshot,
@@ -14,20 +15,18 @@ import type {
 } from "@/types/database";
 
 export async function POST(req: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("organization_id")
-    .eq("id", user.id)
-    .single();
-
-  const organizationId = (profile as { organization_id: string } | null)
-    ?.organization_id;
+  let supabase;
+  let user;
+  let organizationId: string;
+  try {
+    const session = await requirePermission(PERMISSIONS.production.execute);
+    supabase = session.supabase;
+    user = session.user;
+    organizationId = session.profile.organization_id;
+  } catch (error) {
+    const { body, status } = authzResponse(error);
+    return NextResponse.json(body, { status });
+  }
   if (!organizationId)
     return NextResponse.json({ error: "No organization" }, { status: 403 });
 

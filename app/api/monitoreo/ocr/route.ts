@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { callClaudeVision, isAiConfigured, parseAiJson } from "@/lib/ai/anthropic";
-import { createClient } from "@/lib/supabase/server";
+import { PERMISSIONS } from "@/lib/auth/permissions";
+import { authzResponse, requirePermission } from "@/lib/auth/require-permission";
 
 export const maxDuration = 30;
 
@@ -18,11 +19,12 @@ interface OcrResult {
 }
 
 export async function POST(req: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    await requirePermission(PERMISSIONS.monitoring.execute);
+  } catch (error) {
+    const { body, status } = authzResponse(error);
+    return NextResponse.json(body, { status });
+  }
 
   if (!isAiConfigured()) {
     return NextResponse.json(

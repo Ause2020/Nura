@@ -1,30 +1,19 @@
 import { NextResponse } from "next/server";
+import { PERMISSIONS } from "@/lib/auth/permissions";
+import { authzResponse, requirePermission } from "@/lib/auth/require-permission";
 import { createNotification, notifyOrgManagers } from "@/lib/notifications";
-import { createClient } from "@/lib/supabase/server";
 import type { Nonconformity } from "@/types/database";
 
 export async function POST() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { data: profileData } = await supabase
-    .from("profiles")
-    .select("organization_id, role")
-    .eq("id", user.id)
-    .single();
-
-  const orgId = (profileData as { organization_id: string | null } | null)
-    ?.organization_id;
-
-  if (!orgId) {
-    return NextResponse.json({ error: "No organization" }, { status: 400 });
+  let supabase;
+  let orgId: string;
+  try {
+    const session = await requirePermission(PERMISSIONS.capa.manage);
+    supabase = session.supabase;
+    orgId = session.profile.organization_id;
+  } catch (error) {
+    const { body, status } = authzResponse(error);
+    return NextResponse.json(body, { status });
   }
 
   const today = new Date().toISOString().split("T")[0];

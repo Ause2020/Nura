@@ -45,6 +45,11 @@ export function InvitationAcceptForm({
     const data = await response.json();
     setLoading(false);
 
+    if (response.status === 429) {
+      setError("Demasiados intentos. Intenta de nuevo en unos minutos.");
+      return false;
+    }
+
     if (!response.ok) {
       setError(data.error ?? "No se pudo aceptar la invitación");
       return false;

@@ -1,3 +1,4 @@
+import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
 import {
   CORE_NAV_ITEMS,
   type CoreNavKey,
@@ -20,7 +21,7 @@ const OPERATOR_NAV_KEYS = new Set<CoreNavKey>([
 const ADMIN_ONLY_PREFIXES = ["/configuracion", "/admin"];
 
 export function canManageUsers(role: UserRole): boolean {
-  return role === "admin";
+  return hasPermission(role, PERMISSIONS.users.manage);
 }
 
 export function canAccessPath(role: UserRole, pathname: string): boolean {
