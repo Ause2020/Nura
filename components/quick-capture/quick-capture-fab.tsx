@@ -8,15 +8,16 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 import { QuickNc } from "./quick-nc";
 import { QuickRegistro } from "./quick-registro";
 import type { ProductionFormTemplate } from "@/types/database";
 
 type ActiveCapture = "nc" | "registro" | null;
+type FabTemplate = Pick<ProductionFormTemplate, "id" | "name" | "area">;
 
 interface QuickCaptureFabProps {
-  organizationId: string; // passed from server layout, kept for future client-side use
-  templates: Pick<ProductionFormTemplate, "id" | "name" | "area">[];
+  organizationId: string;
 }
 
 const ACTIONS = [
@@ -34,16 +35,23 @@ const ACTIONS = [
   },
 ];
 
-export function QuickCaptureFab({
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  organizationId: _organizationId,
-  templates,
-}: QuickCaptureFabProps) {
+export function QuickCaptureFab({ organizationId }: QuickCaptureFabProps) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState<ActiveCapture>(null);
+  const [templates, setTemplates] = useState<FabTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templatesError, setTemplatesError] = useState("");
   const fabRef = useRef<HTMLDivElement>(null);
+  const templatesCache = useRef<FabTemplate[] | null>(null);
+  const inflight = useRef<Promise<void> | null>(null);
 
-  // Close speed-dial on outside click
+  useEffect(() => {
+    templatesCache.current = null;
+    inflight.current = null;
+    setTemplates([]);
+    setTemplatesError("");
+  }, [organizationId]);
+
   useEffect(() => {
     if (!open) return;
     function handleClick(e: MouseEvent) {
@@ -55,19 +63,64 @@ export function QuickCaptureFab({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
 
+  async function loadTemplates() {
+    if (templatesCache.current) {
+      setTemplates(templatesCache.current);
+      return;
+    }
+    if (inflight.current) {
+      setTemplatesLoading(true);
+      await inflight.current;
+      if (templatesCache.current) {
+        setTemplates(templatesCache.current);
+      }
+      setTemplatesLoading(false);
+      return;
+    }
+
+    setTemplatesLoading(true);
+    setTemplatesError("");
+    const request = (async () => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("production_form_templates")
+        .select("id, name, area")
+        .eq("organization_id", organizationId)
+        .eq("is_active", true)
+        .order("name");
+
+      if (error) {
+        setTemplatesError(error.message);
+        setTemplates([]);
+        return;
+      }
+
+      const rows = (data ?? []) as FabTemplate[];
+      templatesCache.current = rows;
+      setTemplates(rows);
+    })().finally(() => {
+      inflight.current = null;
+      setTemplatesLoading(false);
+    });
+
+    inflight.current = request;
+    await request;
+  }
+
   function openCapture(id: ActiveCapture) {
     setOpen(false);
     setActive(id);
+    if (id === "registro") {
+      void loadTemplates();
+    }
   }
 
   return (
     <>
-      {/* FAB — only on mobile (hidden md+) */}
       <div
         ref={fabRef}
         className="fixed bottom-6 right-4 z-40 flex flex-col items-end gap-3 md:hidden"
       >
-        {/* Speed-dial options */}
         {open && (
           <div className="flex flex-col items-end gap-2">
             {ACTIONS.map((action) => (
@@ -93,7 +146,6 @@ export function QuickCaptureFab({
           </div>
         )}
 
-        {/* Main FAB button */}
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -107,11 +159,12 @@ export function QuickCaptureFab({
         </button>
       </div>
 
-      {/* Modals */}
       {active === "nc" && <QuickNc onClose={() => setActive(null)} />}
       {active === "registro" && (
         <QuickRegistro
           templates={templates}
+          templatesLoading={templatesLoading}
+          templatesError={templatesError}
           onClose={() => setActive(null)}
         />
       )}

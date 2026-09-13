@@ -33,3 +33,18 @@ export function CardSkeleton() {
     </div>
   );
 }
+
+export function ModuleLoadingHeader({
+  titleWidth = "w-36",
+  descriptionWidth = "w-56",
+}: {
+  titleWidth?: string;
+  descriptionWidth?: string;
+}) {
+  return (
+    <header className="sticky top-0 z-10 bg-white border-b border-border px-6 py-4">
+      <Skeleton className={cn("h-4", titleWidth)} />
+      <Skeleton className={cn("mt-2 h-3", descriptionWidth)} />
+    </header>
+  );
+}

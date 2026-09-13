@@ -20,6 +20,7 @@ import type {
   InsightRisk,
 } from "@/lib/ai-insights/types";
 import { cn } from "@/lib/utils";
+import { AnalisisRegenerate } from "@/components/ai-insights/analisis-enricher";
 import { ModuleHeader } from "@/components/layout/header";
 
 const RISK_COPY: Record<
@@ -98,12 +99,11 @@ function FindingRow({ finding }: { finding: InsightFinding }) {
 
 interface AnalisisViewProps {
   insight: DailyInsight;
-  aiPending?: boolean;
 }
 
-export function AnalisisView({ insight, aiPending = false }: AnalisisViewProps) {
+export function AnalisisView({ insight }: AnalisisViewProps) {
   const risk = RISK_COPY[insight.overallRisk];
-  const hoursLeft = hoursUntilNextBriefing(insight.generatedAt);
+  const hoursLeft = hoursUntilNextBriefing();
   const { snapshot, analysis, findings } = insight;
 
   const byModule = {
@@ -146,13 +146,16 @@ export function AnalisisView({ insight, aiPending = false }: AnalisisViewProps) 
         title="Análisis"
         description="Diagnóstico diario del sistema de inocuidad"
         actions={
-          <div className="flex items-center gap-2 text-xs text-ink-faint">
-            <Clock3 className="h-3.5 w-3.5" />
-            <span>
-              {hoursLeft === 0
-                ? "Se actualizará en la próxima visita"
-                : `Próximo análisis en ${hoursLeft} h`}
-            </span>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 text-xs text-ink-faint">
+              <Clock3 className="h-3.5 w-3.5" />
+              <span>
+                {hoursLeft === 0
+                  ? "Nuevo análisis a medianoche (Santiago)"
+                  : `Próximo análisis en ${hoursLeft} h`}
+              </span>
+            </div>
+            <AnalisisRegenerate />
           </div>
         }
       />
@@ -169,9 +172,7 @@ export function AnalisisView({ insight, aiPending = false }: AnalisisViewProps) 
               Generado a las {formatTime(insight.generatedAt)}
               {insight.source === "ai"
                 ? " · Interpretación IA"
-                : aiPending
-                  ? " · Diagnóstico automático · interpretando con IA…"
-                  : " · Diagnóstico automático"}
+                : " · Diagnóstico automático"}
             </span>
           </div>
           <h2 className="text-lg font-semibold text-ink tracking-tight font-display">

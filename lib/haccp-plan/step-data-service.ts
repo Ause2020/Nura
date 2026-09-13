@@ -8,6 +8,7 @@ import type {
   Step8Payload,
   Step9Payload,
 } from "@/lib/haccp-plan/types";
+import { rememberWrite, shouldSkipWrite } from "@/lib/haccp-plan/write-guard";
 
 export type StepPayloadMap = {
   7: Step7Payload;
@@ -34,6 +35,42 @@ function writeLocal(stepId: number, data: unknown) {
   const current = readLocal();
   current[String(stepId)] = data;
   localStorage.setItem(LOCAL_BACKUP_KEY, JSON.stringify(current));
+}
+
+function stepWriteKey(organizationId: string, stepId: number) {
+  return `step:${organizationId}:${stepId}`;
+}
+
+export function writeStepLocalBackup<K extends keyof StepPayloadMap>(
+  stepId: K,
+  payload: StepPayloadMap[K]
+) {
+  writeLocal(stepId, payload);
+}
+
+export function readStepLocalBackup(): Partial<{
+  [K in keyof StepPayloadMap]: StepPayloadMap[K];
+}> {
+  const raw = readLocal();
+  const next: Partial<{ [K in keyof StepPayloadMap]: StepPayloadMap[K] }> = {};
+  if (raw["7"]) next[7] = raw["7"] as StepPayloadMap[7];
+  if (raw["8"]) next[8] = raw["8"] as StepPayloadMap[8];
+  if (raw["9"]) next[9] = raw["9"] as StepPayloadMap[9];
+  if (raw["10"]) next[10] = raw["10"] as StepPayloadMap[10];
+  if (raw["11"]) next[11] = raw["11"] as StepPayloadMap[11];
+  return next;
+}
+
+export function primeStepDataWrites(
+  organizationId: string,
+  stepData: { [K in keyof StepPayloadMap]?: StepPayloadMap[K] | null }
+) {
+  for (const stepId of [7, 8, 9, 10, 11] as const) {
+    const payload = stepData[stepId];
+    if (payload) {
+      rememberWrite(stepWriteKey(organizationId, stepId), payload);
+    }
+  }
 }
 
 export async function getStepData<K extends keyof StepPayloadMap>(
@@ -63,7 +100,9 @@ export async function getStepData<K extends keyof StepPayloadMap>(
     return null;
   }
 
-  return (data as { data: StepPayloadMap[K] }).data;
+  const payload = (data as { data: StepPayloadMap[K] }).data;
+  rememberWrite(stepWriteKey(organizationId, stepId), payload);
+  return payload;
 }
 
 export async function saveStepData<K extends keyof StepPayloadMap>(
@@ -72,6 +111,8 @@ export async function saveStepData<K extends keyof StepPayloadMap>(
   payload: StepPayloadMap[K]
 ) {
   writeLocal(stepId, payload);
+  const key = stepWriteKey(organizationId, stepId);
+  if (shouldSkipWrite(key, payload)) return;
   const { error } = await createClient().from("haccp_step_data").upsert(
     {
       organization_id: organizationId,
@@ -82,6 +123,7 @@ export async function saveStepData<K extends keyof StepPayloadMap>(
     { onConflict: "organization_id,step_id" }
   );
   if (error) throw new Error(error.message);
+  rememberWrite(key, payload);
 }
 
 export async function getAllStepData(organizationId: string, client?: HaccpDbClient) {
@@ -104,11 +146,13 @@ export async function getAllStepData(organizationId: string, client?: HaccpDbCli
     }
   }
 
-  return {
+  const result = {
     7: (byStep[7] as StepPayloadMap[7] | undefined) ?? null,
     8: (byStep[8] as StepPayloadMap[8] | undefined) ?? null,
     9: (byStep[9] as StepPayloadMap[9] | undefined) ?? null,
     10: (byStep[10] as StepPayloadMap[10] | undefined) ?? null,
     11: (byStep[11] as StepPayloadMap[11] | undefined) ?? null,
   };
+  primeStepDataWrites(organizationId, result);
+  return result;
 }

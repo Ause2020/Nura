@@ -1,7 +1,6 @@
 import { randomBytes } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { MAX_TEAM_USERS } from "@/lib/team/constants";
-import { getInvitationUrl } from "@/lib/team/urls";
 import type { Invitation, UserRole } from "@/types/database";
 
 export function generateInvitationToken(): string {

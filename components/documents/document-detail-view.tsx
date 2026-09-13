@@ -15,10 +15,9 @@ import {
 import { ModuleHeader } from "@/components/layout/header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input, Textarea } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import {
-  DOCUMENT_STATUS_LABELS,
   DOCUMENT_STATUS_VARIANT,
   getCategoryLabel,
   getStatusLabel,
@@ -32,7 +31,7 @@ import {
   uploadDocumentFile,
 } from "@/lib/documents/utils";
 import { canManageQuality } from "@/lib/auth/permissions";
-import { createNotification } from "@/lib/notifications";
+import { createNotifications } from "@/lib/notifications";
 import { PrivateFileLink } from "@/components/storage/private-file";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -170,17 +169,18 @@ export function DocumentDetailView({
     if (data) {
       setAcks(data as DocumentReadAcknowledgment[]);
 
-      for (const user of targetUsers) {
-        await createNotification(supabase, {
+      await createNotifications(
+        supabase,
+        targetUsers.map((user) => ({
           organizationId,
           userId: user.id,
-          type: "document_read_required",
+          type: "document_read_required" as const,
           title: "Acuse de lectura pendiente",
           message: `Debes confirmar lectura: ${doc.code} — ${doc.title}`,
           link: `/documentos/${doc.id}`,
           dedupKey: `doc-read-${versionId}-${user.id}`,
-        });
-      }
+        }))
+      );
     }
   }
 

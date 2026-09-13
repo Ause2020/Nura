@@ -20,13 +20,22 @@ export function formatInsightDate(isoDate: string): string {
   });
 }
 
-export function hoursUntilNextBriefing(generatedAt: string, now = new Date()): number {
-  const next = new Date(generatedAt).getTime() + 24 * MS_HOUR;
-  return Math.max(0, Math.ceil((next - now.getTime()) / MS_HOUR));
+export function hoursUntilNextBriefing(now = new Date()): number {
+  for (let hour = 1; hour <= 24; hour += 1) {
+    const later = new Date(now.getTime() + hour * MS_HOUR);
+    if (periodDateInSantiago(later) !== periodDateInSantiago(now)) {
+      return hour;
+    }
+  }
+  return 0;
 }
 
-export function isInsightFresh(generatedAt: string, now = new Date()): boolean {
-  return now.getTime() - new Date(generatedAt).getTime() < 24 * MS_HOUR;
+/** Un insight es válido si pertenece al día calendario (Santiago), no a una ventana de 24 h. */
+export function isInsightForPeriod(
+  periodDate: string,
+  now = new Date()
+): boolean {
+  return periodDate === periodDateInSantiago(now);
 }
 
 export function daysBetween(fromIso: string, to = new Date()): number {

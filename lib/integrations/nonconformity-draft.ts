@@ -25,8 +25,6 @@ export interface NonconformityDraftInput {
   productAffected?: string | null;
   assignedTo?: string | null;
   quarantineThreshold?: NcSeverity;
-  haccpCcpId?: string | null;
-  supplierId?: string | null;
 }
 
 export async function createNonconformityDraft(
@@ -62,8 +60,6 @@ export async function createNonconformityDraft(
       capa_stage: "identification" satisfies CapaStage,
       effectiveness_result: "pending",
       lot_quarantined: lotQuarantined,
-      haccp_ccp_id: input.haccpCcpId ?? null,
-      supplier_id: input.supplierId ?? null,
     })
     .select("id, nc_number")
     .single();

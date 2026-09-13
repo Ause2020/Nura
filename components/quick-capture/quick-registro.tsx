@@ -1,16 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { QuickCaptureShell } from "./quick-capture-modal";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { ProductionFormTemplate } from "@/types/database";
 
 interface QuickRegistroProps {
   templates: Pick<ProductionFormTemplate, "id" | "name" | "area">[];
+  templatesLoading?: boolean;
+  templatesError?: string;
   onClose: () => void;
 }
 
-export function QuickRegistro({ templates, onClose }: QuickRegistroProps) {
+export function QuickRegistro({
+  templates,
+  templatesLoading = false,
+  templatesError = "",
+  onClose,
+}: QuickRegistroProps) {
   const router = useRouter();
   const [templateId, setTemplateId] = useState(templates[0]?.id ?? "");
   const [lotNumber, setLotNumber] = useState("");
@@ -18,6 +26,12 @@ export function QuickRegistro({ templates, onClose }: QuickRegistroProps) {
   const [hasDeviation, setHasDeviation] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!templateId && templates[0]?.id) {
+      setTemplateId(templates[0].id);
+    }
+  }, [templateId, templates]);
 
   const selectedTemplate = templates.find((t) => t.id === templateId);
 
@@ -56,7 +70,7 @@ export function QuickRegistro({ templates, onClose }: QuickRegistroProps) {
     router.refresh();
   }
 
-  if (templates.length === 0) {
+  if (!templatesLoading && templates.length === 0) {
     return (
       <QuickCaptureShell
         title="Monitoreo rápido"
@@ -67,9 +81,15 @@ export function QuickRegistro({ templates, onClose }: QuickRegistroProps) {
         submitLabel="Cerrar"
       >
         <p className="text-sm text-ink-light text-center py-4">
-          No hay plantillas activas. Crea una plantilla en{" "}
-          <span className="font-medium text-forest">Monitoreo → Plantillas</span>{" "}
-          para usar la captura rápida.
+          {templatesError
+            ? templatesError
+            : "No hay plantillas activas. Crea una plantilla en "}
+          {!templatesError && (
+            <>
+              <span className="font-medium text-forest">Monitoreo → Plantillas</span>{" "}
+              para usar la captura rápida.
+            </>
+          )}
         </p>
       </QuickCaptureShell>
     );
@@ -80,7 +100,7 @@ export function QuickRegistro({ templates, onClose }: QuickRegistroProps) {
       title="Monitoreo rápido"
       onClose={onClose}
       onSubmit={handleSubmit}
-      loading={loading}
+      loading={loading || templatesLoading}
       error={error}
       submitLabel="Iniciar registro"
     >
@@ -89,6 +109,16 @@ export function QuickRegistro({ templates, onClose }: QuickRegistroProps) {
           Plantilla <span className="text-danger">*</span>
         </p>
         <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto">
+          {templatesLoading && (
+            <>
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </>
+          )}
+          {templatesError && (
+            <p className="text-sm text-danger py-2">{templatesError}</p>
+          )}
           {templates.map((t) => (
             <button
               key={t.id}

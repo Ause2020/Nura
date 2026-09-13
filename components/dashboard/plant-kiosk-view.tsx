@@ -1,30 +1,41 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Maximize2, RefreshCw, X } from "lucide-react";
-import { filterKioskWidgets } from "@/lib/dashboard/kpi-widgets";
-import type { DashboardData } from "@/lib/dashboard/data";
+import type { KioskSnapshot } from "@/lib/kiosk/snapshot";
 import { cn } from "@/lib/utils";
 
 const REFRESH_KEY = "nura-kiosk-refresh-seconds";
 const DEFAULT_REFRESH = 60;
+const ALLOWED_INTERVALS = new Set([30, 60, 120, 300]);
 
 interface PlantKioskViewProps {
-  data: DashboardData;
+  initial: KioskSnapshot;
   organizationName: string;
 }
 
-export function PlantKioskView({ data, organizationName }: PlantKioskViewProps) {
-  const router = useRouter();
+export function PlantKioskView({
+  initial,
+  organizationName,
+}: PlantKioskViewProps) {
   const [now, setNow] = useState(() => new Date());
   const [refreshSec, setRefreshSec] = useState(DEFAULT_REFRESH);
   const [lastRefresh, setLastRefresh] = useState(() => new Date());
+  const [snapshot, setSnapshot] = useState(initial);
+
+  const loadMetrics = useCallback(async () => {
+    const response = await fetch("/api/kiosk/metrics", { cache: "no-store" });
+    if (!response.ok) return;
+    const payload = (await response.json()) as KioskSnapshot;
+    if (!payload || !Array.isArray(payload.widgets)) return;
+    setSnapshot(payload);
+    setLastRefresh(new Date());
+  }, []);
 
   useEffect(() => {
     const saved = Number(localStorage.getItem(REFRESH_KEY));
-    if (!Number.isNaN(saved) && saved >= 15 && saved <= 300) {
+    if (ALLOWED_INTERVALS.has(saved)) {
       setRefreshSec(saved);
     }
   }, []);
@@ -36,18 +47,14 @@ export function PlantKioskView({ data, organizationName }: PlantKioskViewProps) 
 
   useEffect(() => {
     const timer = setInterval(() => {
-      router.refresh();
-      setLastRefresh(new Date());
+      void loadMetrics();
     }, refreshSec * 1000);
     return () => clearInterval(timer);
-  }, [router, refreshSec]);
-
-  const widgets = filterKioskWidgets(data.moduleWidgets);
-  const openTasks = data.tasks.filter((t) => t.urgent).length;
+  }, [loadMetrics, refreshSec]);
 
   function handleRefreshChange(value: string) {
     const n = Number(value);
-    if (Number.isNaN(n) || n < 15 || n > 300) return;
+    if (!ALLOWED_INTERVALS.has(n)) return;
     setRefreshSec(n);
     localStorage.setItem(REFRESH_KEY, String(n));
   }
@@ -105,7 +112,7 @@ export function PlantKioskView({ data, organizationName }: PlantKioskViewProps) 
 
       <main className="flex-1 px-6 py-8 space-y-8">
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-          {widgets.map((widget) => (
+          {snapshot.widgets.map((widget) => (
             <div
               key={widget.id}
               className={cn(
@@ -141,7 +148,7 @@ export function PlantKioskView({ data, organizationName }: PlantKioskViewProps) 
               Score del sistema
             </p>
             <p className="text-4xl font-mono font-bold text-[#95D5B2] mt-2">
-              {data.globalScore}%
+              {snapshot.globalScore}%
             </p>
           </div>
           <div className="rounded-lg border border-white/15 bg-white/5 p-5">
@@ -151,10 +158,10 @@ export function PlantKioskView({ data, organizationName }: PlantKioskViewProps) 
             <p
               className={cn(
                 "text-4xl font-mono font-bold mt-2",
-                openTasks > 0 ? "text-[#FCA5A5]" : "text-[#95D5B2]"
+                snapshot.urgentTasks > 0 ? "text-[#FCA5A5]" : "text-[#95D5B2]"
               )}
             >
-              {openTasks}
+              {snapshot.urgentTasks}
             </p>
           </div>
           <div className="rounded-lg border border-white/15 bg-white/5 p-5">
@@ -162,7 +169,7 @@ export function PlantKioskView({ data, organizationName }: PlantKioskViewProps) 
               Monitoreos conformes
             </p>
             <p className="text-4xl font-mono font-bold text-white mt-2">
-              {data.recordsComplianceRate}%
+              {snapshot.recordsComplianceRate}%
             </p>
           </div>
         </div>

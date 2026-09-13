@@ -23,6 +23,7 @@ import {
   snapDrag,
 } from "@/components/haccp-plan/diagram/geometry";
 import { cn } from "@/lib/utils";
+import { persistableDiagrams, samePayload } from "@/lib/haccp-plan/write-guard";
 import type {
   DiagramEdge,
   DiagramNode,
@@ -107,19 +108,62 @@ export function FlowDiagramEditor({
     "vertical"
   );
 
-  const diagramsRef = useRef(diagrams);
-  diagramsRef.current = diagrams;
-  const diagram = diagrams.find((item) => item.id === activeId) ?? diagrams[0];
+  const [working, setWorking] = useState(diagrams);
+  const workingRef = useRef(diagrams);
+  const persistedRef = useRef(diagrams);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const wheelCommitRef = useRef<number | undefined>(undefined);
+  const interactingRef = useRef(false);
+
+  useEffect(() => {
+    workingRef.current = diagrams;
+    persistedRef.current = diagrams;
+    setWorking(diagrams);
+  }, [diagrams]);
+
+  const diagram = working.find((item) => item.id === activeId) ?? working[0];
   diagramRef.current = diagram ?? null;
   const selectionRef = useRef(selection);
   selectionRef.current = selection;
 
-  function patchActive(next: Partial<ProcessDiagram>) {
-    if (!diagram) return;
-    onChange(
-      diagrams.map((item) => (item.id === diagram.id ? { ...item, ...next } : item))
-    );
+  function commitWorking(next: ProcessDiagram[] = workingRef.current) {
+    workingRef.current = next;
+    setWorking(next);
+    if (samePayload(persistableDiagrams(next), persistableDiagrams(persistedRef.current))) {
+      return;
+    }
+    onChangeRef.current(next);
   }
+
+  function patchActive(next: Partial<ProcessDiagram>, persist = true) {
+    const list = workingRef.current;
+    const current = list.find((item) => item.id === activeId) ?? list[0];
+    if (!current) return;
+    const updated = list.map((item) =>
+      item.id === current.id ? { ...item, ...next } : item
+    );
+    workingRef.current = updated;
+    setWorking(updated);
+    if (persist) {
+      commitWorking(updated);
+    }
+  }
+
+  const scheduleWheelCommit = useRef(() => {
+    window.clearTimeout(wheelCommitRef.current);
+    wheelCommitRef.current = window.setTimeout(() => {
+      wheelCommitRef.current = undefined;
+      commitWorking();
+    }, 280);
+  });
+  scheduleWheelCommit.current = () => {
+    window.clearTimeout(wheelCommitRef.current);
+    wheelCommitRef.current = window.setTimeout(() => {
+      wheelCommitRef.current = undefined;
+      commitWorking();
+    }, 280);
+  };
 
   function toWorld(clientX: number, clientY: number) {
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -260,28 +304,39 @@ export function FlowDiagramEditor({
       const el = canvasRef.current;
       if (!current || !el) return;
       const rect = el.getBoundingClientRect();
-      const next = Math.min(
+      const nextZoom = Math.min(
         2,
         Math.max(0.4, current.zoom + (event.deltaY > 0 ? -0.08 : 0.08))
       );
       const worldX = (event.clientX - rect.left - current.panX) / current.zoom;
       const worldY = (event.clientY - rect.top - current.panY) / current.zoom;
-      onChange(
-        diagramsRef.current.map((item) =>
-          item.id === current.id
-            ? {
-                ...item,
-                zoom: next,
-                panX: event.clientX - rect.left - worldX * next,
-                panY: event.clientY - rect.top - worldY * next,
-              }
-            : item
-        )
+      const updated = workingRef.current.map((item) =>
+        item.id === current.id
+          ? {
+              ...item,
+              zoom: nextZoom,
+              panX: event.clientX - rect.left - worldX * nextZoom,
+              panY: event.clientY - rect.top - worldY * nextZoom,
+            }
+          : item
       );
+      workingRef.current = updated;
+      setWorking(updated);
+      scheduleWheelCommit.current();
     }
     canvas.addEventListener("wheel", onWheel, { passive: false });
     return () => canvas.removeEventListener("wheel", onWheel);
-  }, [onChange, diagram?.id]);
+  }, [diagram?.id]);
+
+  useEffect(() => {
+    return () => {
+      if (wheelCommitRef.current !== undefined) {
+        window.clearTimeout(wheelCommitRef.current);
+        wheelCommitRef.current = undefined;
+        onChangeRef.current(workingRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -301,8 +356,8 @@ export function FlowDiagramEditor({
       ) {
         event.preventDefault();
         if (currentSelection.kind === "node") {
-          onChange(
-            diagramsRef.current.map((item) =>
+          commitWorking(
+            workingRef.current.map((item) =>
               item.id === current.id
                 ? {
                     ...item,
@@ -317,8 +372,8 @@ export function FlowDiagramEditor({
             )
           );
         } else {
-          onChange(
-            diagramsRef.current.map((item) =>
+          commitWorking(
+            workingRef.current.map((item) =>
               item.id === current.id
                 ? {
                     ...item,
@@ -343,8 +398,8 @@ export function FlowDiagramEditor({
             ArrowLeft: { x: -step, y: 0 },
             ArrowRight: { x: step, y: 0 },
           }[event.key] ?? { x: 0, y: 0 };
-        onChange(
-          diagramsRef.current.map((item) =>
+        commitWorking(
+          workingRef.current.map((item) =>
             item.id === current.id
               ? {
                   ...item,
@@ -361,7 +416,7 @@ export function FlowDiagramEditor({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onChange]);
+  }, []);
 
   if (!diagram) return null;
 
@@ -573,27 +628,36 @@ export function FlowDiagramEditor({
           const world = toWorld(event.clientX, event.clientY);
           if (connectFrom) setCursorWorld(world);
           if (panning) {
-            patchActive({
-              panX: event.clientX - panning.x,
-              panY: event.clientY - panning.y,
-            });
+            interactingRef.current = true;
+            patchActive(
+              {
+                panX: event.clientX - panning.x,
+                panY: event.clientY - panning.y,
+              },
+              false
+            );
           }
           if (dragging) {
+            interactingRef.current = true;
+            const live = workingRef.current.find((item) => item.id === diagram.id) ?? diagram;
             const rawX =
-              dragging.startX + (event.clientX - dragging.startClientX) / diagram.zoom;
+              dragging.startX + (event.clientX - dragging.startClientX) / live.zoom;
             const rawY =
-              dragging.startY + (event.clientY - dragging.startClientY) / diagram.zoom;
-            const moving = diagram.nodes.find((node) => node.id === dragging.id);
+              dragging.startY + (event.clientY - dragging.startClientY) / live.zoom;
+            const moving = live.nodes.find((node) => node.id === dragging.id);
             if (!moving) return;
-            const snapped = snapDrag(moving, rawX, rawY, diagram.nodes);
+            const snapped = snapDrag(moving, rawX, rawY, live.nodes);
             setGuides(snapped.guides);
-            patchActive({
-              nodes: diagram.nodes.map((node) =>
-                node.id === dragging.id
-                  ? { ...node, x: snapped.x, y: snapped.y }
-                  : node
-              ),
-            });
+            patchActive(
+              {
+                nodes: live.nodes.map((node) =>
+                  node.id === dragging.id
+                    ? { ...node, x: snapped.x, y: snapped.y }
+                    : node
+                ),
+              },
+              false
+            );
           }
         }}
         onPointerUp={(event) => {
@@ -617,6 +681,10 @@ export function FlowDiagramEditor({
               setConnectFrom(null);
               setCursorWorld(null);
             }
+          }
+          if (interactingRef.current) {
+            interactingRef.current = false;
+            commitWorking();
           }
           setPanning(null);
           setDragging(null);

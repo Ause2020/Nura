@@ -116,6 +116,8 @@ test("classifies every current API and the priority legacy paths", () => {
     ["/api/storage/download", { hasUser: true }, "AUTHENTICATED"],
     ["/api/settings/organization", { hasUser: true }, "AUTHENTICATED"],
     ["/api/team/members", { hasUser: true }, "AUTHENTICATED"],
+    ["/api/kiosk/metrics", { hasUser: true }, "AUTHENTICATED"],
+    ["/api/kiosk/metrics", {}, "UNAUTH_PROBE"],
     ["/m/qr-token", {}, "PUBLIC_PAGE"],
     ["/registro-calidad/legacy-token", {}, "PUBLIC_PAGE"],
     ["/invitacion/invite-token", {}, "PUBLIC_PAGE"],

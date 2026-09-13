@@ -20,7 +20,6 @@ import type {
   ControlledDocument,
   DocumentCategory,
   DocumentStatus,
-  UserRole,
 } from "@/types/database";
 
 interface DocumentsDashboardProps {

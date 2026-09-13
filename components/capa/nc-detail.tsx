@@ -132,7 +132,6 @@ export function NcDetail({
               organizationId={organizationId}
               userId={userId}
               userRole={userRole}
-              pendingCapaTraining={0}
               aiAvailable={aiAvailable}
               onNcUpdate={setNc}
               onActionsUpdate={setActions}

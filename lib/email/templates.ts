@@ -71,26 +71,6 @@ export function capaOverdueEmail(params: {
   };
 }
 
-export function prpMissedEmail(params: {
-  programName: string;
-  daysOverdue: number;
-  appUrl: string;
-}): { subject: string; html: string } {
-  const body = `
-    <p style="margin:0 0 16px;font-size:14px;color:${BRAND.muted};line-height:1.5;">
-      El programa <strong>${params.programName}</strong> no ha sido ejecutado en
-      <strong>${params.daysOverdue} días</strong> según su frecuencia programada.
-    </p>
-    <a href="${params.appUrl}" style="display:inline-block;background:${BRAND.forest};color:#FFFFFF;text-decoration:none;padding:10px 16px;border-radius:6px;font-size:13px;font-weight:600;">
-      Ejecutar checklist
-    </a>`;
-
-  return {
-    subject: `[Nura] PRP pendiente: ${params.programName}`,
-    html: layout("Programa PRP sin ejecutar", body),
-  };
-}
-
 export function auditUpcomingEmail(params: {
   auditTitle: string;
   scheduledDate: string;
@@ -160,82 +140,6 @@ export function auditCompletedEmail(params: {
   return {
     subject: `[Nura] Auditoría completada: ${params.auditTitle}`,
     html: layout("Auditoría completada", body),
-  };
-}
-
-export function supplierDocExpiringEmail(params: {
-  supplierName: string;
-  docName: string;
-  expiryDate: string;
-  daysUntil: number;
-  appUrl: string;
-}): { subject: string; html: string } {
-  const body = `
-    <p style="margin:0 0 16px;font-size:14px;color:${BRAND.muted};line-height:1.5;">
-      Un documento de homologación de proveedor vence en <strong>${params.daysUntil} días</strong>.
-    </p>
-    <table width="100%" style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;padding:12px;margin-bottom:16px;">
-      <tr><td style="font-size:13px;color:${BRAND.ink};"><strong>${params.supplierName}</strong></td></tr>
-      <tr><td style="font-size:12px;color:${BRAND.muted};padding-top:4px;">${params.docName}</td></tr>
-      <tr><td style="font-size:12px;color:#D97706;padding-top:8px;font-family:monospace;">Vence: ${params.expiryDate}</td></tr>
-    </table>
-    <a href="${params.appUrl}" style="display:inline-block;background:${BRAND.forest};color:#FFFFFF;text-decoration:none;padding:10px 16px;border-radius:6px;font-size:13px;font-weight:600;">
-      Ver proveedor
-    </a>`;
-
-  return {
-    subject: `[Nura] Doc. proveedor por vencer: ${params.supplierName}`,
-    html: layout("Documento de proveedor por vencer", body),
-  };
-}
-
-export function supplierEvalOverdueEmail(params: {
-  supplierName: string;
-  criticality: string;
-  nextEvaluationDate: string | null;
-  appUrl: string;
-}): { subject: string; html: string } {
-  const body = `
-    <p style="margin:0 0 16px;font-size:14px;color:${BRAND.muted};line-height:1.5;">
-      Un proveedor <strong>${params.criticality}</strong> requiere evaluación de desempeño.
-    </p>
-    <table width="100%" style="background:#FEF2F2;border:1px solid #FECACA;border-radius:6px;padding:12px;margin-bottom:16px;">
-      <tr><td style="font-size:13px;color:${BRAND.ink};"><strong>${params.supplierName}</strong></td></tr>
-      <tr><td style="font-size:12px;color:#DC2626;padding-top:8px;font-family:monospace;">
-        ${params.nextEvaluationDate ? `Venció: ${params.nextEvaluationDate}` : "Sin fecha programada"}
-      </td></tr>
-    </table>
-    <a href="${params.appUrl}" style="display:inline-block;background:${BRAND.forest};color:#FFFFFF;text-decoration:none;padding:10px 16px;border-radius:6px;font-size:13px;font-weight:600;">
-      Evaluar proveedor
-    </a>`;
-
-  return {
-    subject: `[Nura] Evaluación pendiente: ${params.supplierName}`,
-    html: layout("Evaluación de proveedor vencida", body),
-  };
-}
-
-export function complaintCriticalEmail(params: {
-  complaintNumber: string;
-  customerName: string;
-  description: string;
-  appUrl: string;
-}): { subject: string; html: string } {
-  const body = `
-    <p style="margin:0 0 16px;font-size:14px;color:${BRAND.muted};line-height:1.5;">
-      Se registró un <strong>reclamo de inocuidad crítica</strong> que requiere atención inmediata.
-    </p>
-    <table width="100%" style="background:#FEF2F2;border:1px solid #FECACA;border-radius:6px;padding:12px;margin-bottom:16px;">
-      <tr><td style="font-size:13px;color:${BRAND.ink};"><strong>${params.complaintNumber}</strong> — ${params.customerName}</td></tr>
-      <tr><td style="font-size:12px;color:${BRAND.muted};padding-top:4px;">${params.description}</td></tr>
-    </table>
-    <a href="${params.appUrl}" style="display:inline-block;background:${BRAND.forest};color:#FFFFFF;text-decoration:none;padding:10px 16px;border-radius:6px;font-size:13px;font-weight:600;">
-      Ver reclamo
-    </a>`;
-
-  return {
-    subject: `[Nura] Reclamo crítico: ${params.complaintNumber}`,
-    html: layout("Reclamo crítico de inocuidad", body),
   };
 }
 

@@ -100,7 +100,7 @@ export default async function OnboardingPage() {
               Configura tu espacio de trabajo
             </p>
           </div>
-          <OnboardingWizard userId={user.id} />
+          <OnboardingWizard />
         </div>
       </div>
     </ToastProvider>

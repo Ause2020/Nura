@@ -423,7 +423,7 @@ function AuditoriasPanel() {
   const CHECKS = [
     { text: "Higiene del personal", ok: true },
     { text: "Control de plagas", ok: true },
-    { text: "Trazabilidad de lotes", ok: true },
+    { text: "Monitoreo de PCC", ok: true },
     { text: "Calibración de equipos", ok: false },
     { text: "Registros de limpieza", ok: true },
     { text: "Gestión de alérgenos", ok: true },

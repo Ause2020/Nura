@@ -36,26 +36,6 @@ export async function PATCH(request: Request) {
     if (body.logo_url !== undefined) {
       patch.logo_url = body.logo_url ? String(body.logo_url) : null;
     }
-    if (body.complaint_response_sla_hours !== undefined) {
-      const hours = Number(body.complaint_response_sla_hours);
-      if (Number.isNaN(hours) || hours < 48 || hours > 72) {
-        return NextResponse.json(
-          { error: "SLA debe estar entre 48 y 72 horas" },
-          { status: 400 }
-        );
-      }
-      patch.complaint_response_sla_hours = Math.round(hours);
-    }
-    if (body.complaint_auto_nc_severity !== undefined) {
-      const val = String(body.complaint_auto_nc_severity);
-      if (!["none", "safety_critical", "quality"].includes(val)) {
-        return NextResponse.json(
-          { error: "Umbral NC automática inválido" },
-          { status: 400 }
-        );
-      }
-      patch.complaint_auto_nc_severity = val;
-    }
 
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ error: "Sin cambios" }, { status: 400 });

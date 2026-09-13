@@ -29,39 +29,105 @@ type SupabaseClient = {
   >;
 };
 
+type InsertRow = {
+  organization_id: string;
+  user_id: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  link: string | null;
+  dedup_key: string | null;
+  read: false;
+};
+
+function toInsertRow(input: CreateNotificationInput): InsertRow {
+  return {
+    organization_id: input.organizationId,
+    user_id: input.userId,
+    type: input.type,
+    title: input.title,
+    message: input.message,
+    link: input.link ?? null,
+    dedup_key: input.dedupKey ?? null,
+    read: false,
+  };
+}
+
+function isUniqueViolation(error: { code?: string } | null): boolean {
+  return error?.code === "23505";
+}
+
+function isMissingConflictTarget(error: { message?: string } | null): boolean {
+  return /no unique or exclusion constraint matching the ON CONFLICT/i.test(
+    error?.message ?? ""
+  );
+}
+
+async function insertPlain(
+  supabase: SupabaseClient,
+  rows: InsertRow[]
+): Promise<NotificationRow[]> {
+  if (rows.length === 0) return [];
+  const { data, error } = await supabase
+    .from("notifications")
+    .insert(rows)
+    .select("*");
+
+  if (!error) return (data ?? []) as NotificationRow[];
+  if (isUniqueViolation(error)) return [];
+  return [];
+}
+
+async function insertIgnoringDuplicates(
+  supabase: SupabaseClient,
+  rows: InsertRow[]
+): Promise<NotificationRow[]> {
+  if (rows.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("notifications")
+    .upsert(rows, {
+      onConflict: "organization_id,user_id,dedup_key",
+      ignoreDuplicates: true,
+    })
+    .select("*");
+
+  if (!error) return (data ?? []) as NotificationRow[];
+  if (isUniqueViolation(error)) return [];
+  if (isMissingConflictTarget(error)) {
+    return insertPlain(supabase, rows);
+  }
+  return [];
+}
+
+export async function createNotifications(
+  supabase: SupabaseClient,
+  inputs: CreateNotificationInput[]
+): Promise<NotificationRow[]> {
+  if (inputs.length === 0) return [];
+
+  const withKey: InsertRow[] = [];
+  const withoutKey: InsertRow[] = [];
+  for (const input of inputs) {
+    const row = toInsertRow(input);
+    if (row.dedup_key) withKey.push(row);
+    else withoutKey.push(row);
+  }
+
+  const [deduped, plain] = await Promise.all([
+    insertIgnoringDuplicates(supabase, withKey),
+    insertPlain(supabase, withoutKey),
+  ]);
+
+  return [...deduped, ...plain];
+}
+
 export async function createNotification(
   supabase: SupabaseClient,
   input: CreateNotificationInput
 ): Promise<NotificationRow | null> {
-  if (input.dedupKey) {
-    const { data: existing } = await supabase
-      .from("notifications")
-      .select("id")
-      .eq("organization_id", input.organizationId)
-      .eq("user_id", input.userId)
-      .eq("dedup_key", input.dedupKey)
-      .maybeSingle();
-
-    if (existing) return null;
-  }
-
-  const { data, error } = await supabase
-    .from("notifications")
-    .insert({
-      organization_id: input.organizationId,
-      user_id: input.userId,
-      type: input.type,
-      title: input.title,
-      message: input.message,
-      link: input.link ?? null,
-      dedup_key: input.dedupKey ?? null,
-      read: false,
-    })
-    .select("*")
-    .single();
-
-  if (error || !data) return null;
-  return data as NotificationRow;
+  const created = await createNotifications(supabase, [input]);
+  return created[0] ?? null;
 }
 
 export async function notifyOrgManagers(
@@ -76,18 +142,18 @@ export async function notifyOrgManagers(
     .in("role", ["admin", "quality_manager"]);
 
   const profiles = (profilesData ?? []) as { id: string }[];
-  let created = 0;
+  if (profiles.length === 0) return 0;
 
-  for (const profile of profiles) {
-    const row = await createNotification(supabase, {
+  const created = await createNotifications(
+    supabase,
+    profiles.map((profile) => ({
       ...input,
       organizationId,
       userId: profile.id,
-    });
-    if (row) created++;
-  }
+    }))
+  );
 
-  return created;
+  return created.length;
 }
 
 export async function markNotificationRead(

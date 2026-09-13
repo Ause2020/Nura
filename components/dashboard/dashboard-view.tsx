@@ -13,11 +13,11 @@ import { TrendChart } from "@/components/dashboard/trend-chart";
 import { DailyInsightTeaser } from "@/components/dashboard/daily-insight-teaser";
 import { getGreeting } from "@/lib/dashboard/utils";
 import type { DashboardData } from "@/lib/dashboard/data";
-import type { DailyInsight } from "@/lib/ai-insights/types";
+import type { InsightTeaser } from "@/lib/ai-insights/types";
 
 interface DashboardViewProps {
   data: DashboardData;
-  insight?: DailyInsight | null;
+  insight?: InsightTeaser | null;
 }
 
 export function DashboardView({ data, insight }: DashboardViewProps) {

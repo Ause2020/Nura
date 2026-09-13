@@ -118,18 +118,6 @@ export interface QualitySnapshot {
       severity: string;
     }[];
   };
-  training: {
-    expiredCompletions: {
-      userName: string;
-      courseTitle: string;
-      validUntil: string;
-    }[];
-    expiringSoon: {
-      userName: string;
-      courseTitle: string;
-      validUntil: string;
-    }[];
-  };
 }
 
 export interface DailyInsight {
@@ -145,6 +133,10 @@ export interface DailyInsight {
   snapshot: QualitySnapshot;
   findings: InsightFinding[];
   analysis: InsightAnalysis;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  durationMs: number | null;
+  generationResult: string | null;
 }
 
 export type InsightTeaser = Pick<

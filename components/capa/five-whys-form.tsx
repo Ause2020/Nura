@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input, Textarea } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import type { CapaActionType, Nc5Whys, Nonconformity } from "@/types/database";
+import type { Nc5Whys, Nonconformity } from "@/types/database";
 import type { NcAnalysisResponse } from "@/app/api/ai/nc-analysis/route";
 
 interface FiveWhysFormProps {

@@ -1,14 +1,14 @@
 import { redirect } from "next/navigation";
-import { AnalisisEnricher } from "@/components/ai-insights/analisis-enricher";
 import { AnalisisView } from "@/components/ai-insights/analisis-view";
-import { isAiConfigured } from "@/lib/ai/anthropic";
 import { loadOrCreateDailyInsight } from "@/lib/ai-insights/generate";
 import { getSessionProfile, getSessionUser } from "@/lib/auth/cached-session";
 import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
 import { requireOrganizationId } from "@/lib/haccp/auth";
+import { startDevTimer } from "@/lib/perf/dev-time";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function AnalisisPage() {
+  const endTimer = startDevTimer("/analisis");
   const organizationId = await requireOrganizationId();
   const [user, profile] = await Promise.all([
     getSessionUser(),
@@ -26,6 +26,7 @@ export default async function AnalisisPage() {
   );
 
   if (missingTable) {
+    endTimer();
     return (
       <div className="px-6 py-10">
         <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-ink max-w-2xl">
@@ -41,6 +42,7 @@ export default async function AnalisisPage() {
   }
 
   if (!insight) {
+    endTimer();
     return (
       <div className="px-6 py-10">
         <div className="rounded-md border border-border bg-white p-4 text-sm text-ink-light max-w-2xl">
@@ -50,12 +52,6 @@ export default async function AnalisisPage() {
     );
   }
 
-  const aiPending = insight.source === "rules" && isAiConfigured();
-
-  return (
-    <>
-      <AnalisisView insight={insight} aiPending={aiPending} />
-      <AnalisisEnricher needsAi={aiPending} />
-    </>
-  );
+  endTimer();
+  return <AnalisisView insight={insight} />;
 }

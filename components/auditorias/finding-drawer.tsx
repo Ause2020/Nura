@@ -1,22 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Camera, ChevronDown, ChevronRight } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Camera } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
-import { ComplianceRing } from "@/components/auditorias/compliance-ring";
 import {
   FINDING_TYPE_LABELS,
 } from "@/lib/audit/constants";
-import {
-  calculateComplianceScore,
-  countResults,
-} from "@/lib/audit/utils";
 import { cn } from "@/lib/utils";
 import type {
-  Audit,
-  AuditChecklistItem,
   AuditChecklistResult,
   FindingType,
 } from "@/types/database";

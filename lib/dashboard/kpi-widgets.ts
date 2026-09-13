@@ -1,6 +1,7 @@
 import { getReviewAlert } from "@/lib/documents/utils";
 import { isPastDue, isDueWithinHours } from "@/lib/capa/utils";
 import { startOfDay } from "@/lib/dashboard/utils";
+import type { LastAuditRow, DashboardMetricsPayload } from "@/lib/dashboard/metrics";
 import type {
   Audit,
   ControlledDocument,
@@ -172,6 +173,96 @@ export function computeAuditWidget(audits: Audit[]): ModuleKpiWidget {
     status,
     href: last ? `/auditorias/${last.id}/informe` : "/auditorias",
   };
+}
+
+export function buildModuleKpiWidgetsFromMetrics(
+  metrics: DashboardMetricsPayload
+): ModuleKpiWidget[] {
+  const todayPct =
+    metrics.submissions.today_total > 0
+      ? Math.round(
+          (metrics.submissions.today_ok / metrics.submissions.today_total) * 100
+        )
+      : 100;
+  const weekPct =
+    metrics.submissions.week_total > 0
+      ? Math.round(
+          (metrics.submissions.week_ok / metrics.submissions.week_total) * 100
+        )
+      : 100;
+
+  const lastAudits = metrics.last_audits;
+  const last = lastAudits[0] as LastAuditRow | undefined;
+  const prev = lastAudits[1] as LastAuditRow | undefined;
+  let trend = "Sin historial";
+  if (last && prev) {
+    const diff =
+      Number(last.compliance_score ?? 0) - Number(prev.compliance_score ?? 0);
+    trend =
+      diff > 0
+        ? `+${Math.round(diff)}% vs. anterior`
+        : diff < 0
+          ? `${Math.round(diff)}% vs. anterior`
+          : "Igual que la anterior";
+  } else if (last?.completed_date) {
+    trend = new Date(last.completed_date).toLocaleDateString("es");
+  }
+
+  const score = last?.compliance_score ?? null;
+  const numScore = score !== null ? Number(score) : null;
+  const docsAlert =
+    metrics.documents.review_overdue + metrics.documents.review_due_soon;
+
+  return [
+    {
+      id: "production",
+      label: "Monitoreo",
+      value: `${todayPct}%`,
+      subtitle: `Hoy ${metrics.submissions.today_ok}/${metrics.submissions.today_total || 0} · Semana ${weekPct}% (${metrics.submissions.week_ok}/${metrics.submissions.week_total || 0})`,
+      status: statusFromThresholds(todayPct, 90, 70),
+      href: "/registros",
+      kiosk: true,
+    },
+    {
+      id: "capa",
+      label: "CAPA / NC",
+      value: String(metrics.ncs.open),
+      subtitle: `${metrics.ncs.overdue} vencidas · ${metrics.ncs.due_soon_48h} por vencer · ${metrics.ncs.critical_open} críticas`,
+      status:
+        metrics.ncs.overdue > 0 || metrics.ncs.critical_open > 0
+          ? "danger"
+          : metrics.ncs.due_soon_48h > 0
+            ? "warning"
+            : "success",
+      href: "/capa",
+      kiosk: true,
+    },
+    {
+      id: "documents",
+      label: "Documentos controlados",
+      value: String(docsAlert),
+      subtitle:
+        docsAlert === 0
+          ? "Revisión al día"
+          : `${metrics.documents.review_overdue} vencidos · ${metrics.documents.review_due_soon} por vencer (<30 d)`,
+      status:
+        metrics.documents.review_overdue > 0
+          ? "danger"
+          : metrics.documents.review_due_soon > 0
+            ? "warning"
+            : "success",
+      href: "/documentos",
+    },
+    {
+      id: "audits",
+      label: "Última auditoría",
+      value: numScore !== null ? `${Math.round(numScore)}%` : "—",
+      subtitle: last ? `${last.title} · ${trend}` : "Sin auditorías completadas",
+      status:
+        numScore === null ? "warning" : statusFromThresholds(numScore, 85, 70),
+      href: last ? `/auditorias/${last.id}/informe` : "/auditorias",
+    },
+  ];
 }
 
 export function computeModuleKpiWidgets(input: {

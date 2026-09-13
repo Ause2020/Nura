@@ -1,13 +1,15 @@
 import { callClaude, isAiConfigured, parseAiJson } from "@/lib/ai/anthropic";
 import type { InsightDbClient } from "@/lib/ai-insights/db";
 import { buildFindings, buildRulesAnalysis } from "@/lib/ai-insights/findings";
-import { isInsightFresh, periodDateInSantiago } from "@/lib/ai-insights/period";
+import { periodDateInSantiago } from "@/lib/ai-insights/period";
 import { collectQualitySnapshot } from "@/lib/ai-insights/snapshot";
 import {
   getInsightForDate,
   getLatestInsight,
+  insertDailyInsightIfAbsent,
   isMissingInsightTable,
   upsertDailyInsight,
+  type InsightWriteInput,
 } from "@/lib/ai-insights/store";
 import type {
   DailyInsight,
@@ -62,10 +64,6 @@ function compactForAi(snapshot: QualitySnapshot) {
       stuck: snapshot.ncs.stuck.slice(0, 4),
       overdueItems: snapshot.ncs.overdueItems.slice(0, 4),
     },
-    training: {
-      expired: snapshot.training.expiredCompletions.slice(0, 4),
-      expiring: snapshot.training.expiringSoon.slice(0, 4),
-    },
   };
 }
 
@@ -112,13 +110,27 @@ function sanitizeAnalysis(
 async function interpretWithAi(
   snapshot: QualitySnapshot,
   fallback: InsightAnalysis
-): Promise<{ analysis: InsightAnalysis; model: string | null }> {
+): Promise<{
+  analysis: InsightAnalysis;
+  model: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  durationMs: number;
+  ok: boolean;
+}> {
   if (!isAiConfigured()) {
-    return { analysis: fallback, model: null };
+    return {
+      analysis: fallback,
+      model: null,
+      inputTokens: null,
+      outputTokens: null,
+      durationMs: 0,
+      ok: false,
+    };
   }
 
   const userMessage = `
-Datos del sistema de inocuidad (hechos, no los inventes):
+Datos agregados del sistema de inocuidad (hechos, no los inventes):
 ${JSON.stringify(compactForAi(snapshot))}
 
 Emite el briefing del día. Responde SOLO con este JSON:
@@ -146,105 +158,119 @@ Máximo 5 prioridades, la más urgente primero. Usa href reales del snapshot (id
     system: SYSTEM_PROMPT,
     userMessage,
     maxTokens: 1200,
-    maxInputChars: 7000,
+    maxInputChars: 4000,
     timeoutMs: 25_000,
   });
 
   if (!result.ok) {
-    return { analysis: fallback, model: null };
+    return {
+      analysis: fallback,
+      model: null,
+      inputTokens: null,
+      outputTokens: null,
+      durationMs: 0,
+      ok: false,
+    };
   }
 
   const parsed = parseAiJson<InsightAnalysis>(result.text);
   return {
     analysis: sanitizeAnalysis(parsed, fallback),
     model: "claude-haiku-4-5",
+    inputTokens: result.usage.inputTokens,
+    outputTokens: result.usage.outputTokens,
+    durationMs: result.usage.durationMs,
+    ok: true,
   };
 }
 
 export interface GenerateInsightOptions {
+  /** Regeneración explícita: pisa el insight del día y puede llamar a Claude. */
   force?: boolean;
-  /** Skip the LLM call — persist the deterministic briefing immediately. */
-  skipAi?: boolean;
 }
 
-async function persistFromSnapshot(
+async function buildInsightPayload(
   organizationId: string,
-  snapshot: QualitySnapshot,
   client: InsightDbClient,
-  skipAi: boolean
-): Promise<DailyInsight> {
+  options: { withAi: boolean }
+): Promise<InsightWriteInput> {
+  const started = Date.now();
+  const snapshot = await collectQualitySnapshot(organizationId, client);
   const findings = buildFindings(snapshot);
   const rules = buildRulesAnalysis(snapshot, findings);
-  if (skipAi) {
-    return upsertDailyInsight(
-      organizationId,
-      {
-        periodDate: snapshot.periodDate,
-        source: "rules",
-        model: null,
-        overallRisk: rules.overallRisk,
-        headline: rules.headline,
-        summary: rules.summary,
-        snapshot,
-        findings,
-        analysis: rules,
-      },
-      client
-    );
-  }
 
-  const { analysis, model } = await interpretWithAi(snapshot, rules);
-  return upsertDailyInsight(
-    organizationId,
-    {
+  if (!options.withAi) {
+    return {
       periodDate: snapshot.periodDate,
-      source: model ? "ai" : "rules",
-      model,
-      overallRisk: analysis.overallRisk,
-      headline: analysis.headline,
-      summary: analysis.summary,
+      source: "rules",
+      model: null,
+      overallRisk: rules.overallRisk,
+      headline: rules.headline,
+      summary: rules.summary,
       snapshot,
       findings,
-      analysis,
-    },
-    client
-  );
+      analysis: rules,
+      inputTokens: null,
+      outputTokens: null,
+      durationMs: Date.now() - started,
+      generationResult: "rules",
+    };
+  }
+
+  const ai = await interpretWithAi(snapshot, rules);
+  return {
+    periodDate: snapshot.periodDate,
+    source: ai.ok ? "ai" : "rules",
+    model: ai.model,
+    overallRisk: ai.analysis.overallRisk,
+    headline: ai.analysis.headline,
+    summary: ai.analysis.summary,
+    snapshot,
+    findings,
+    analysis: ai.analysis,
+    inputTokens: ai.inputTokens,
+    outputTokens: ai.outputTokens,
+    durationMs: Date.now() - started,
+    generationResult: ai.ok ? "ai" : "ai_error",
+  };
 }
 
+/**
+ * Devuelve el insight de hoy si existe. Si no, lo crea una vez (reglas, sin Claude).
+ * UNIQUE (organization_id, period_date) + ON CONFLICT DO NOTHING evita carreras.
+ */
+export async function getOrCreateDailyInsight(
+  organizationId: string,
+  client: InsightDbClient
+): Promise<DailyInsight> {
+  const periodDate = periodDateInSantiago();
+  const existing = await getInsightForDate(organizationId, periodDate, client);
+  if (existing) return existing;
+
+  const payload = await buildInsightPayload(organizationId, client, { withAi: false });
+  const inserted = await insertDailyInsightIfAbsent(organizationId, payload, client);
+  if (inserted) return inserted;
+
+  const winner = await getInsightForDate(organizationId, periodDate, client);
+  if (winner) return winner;
+  throw new Error("No se pudo crear el análisis diario");
+}
+
+/**
+ * force: regenera el día (snapshot + Claude si hay clave).
+ * sin force: solo get-or-create, nunca Claude.
+ */
 export async function generateDailyInsight(
   organizationId: string,
   client: InsightDbClient,
   options: GenerateInsightOptions = {}
 ): Promise<DailyInsight> {
-  const periodDate = periodDateInSantiago();
-  const existing = await getInsightForDate(organizationId, periodDate, client);
-
-  if (existing && !options.force && isInsightFresh(existing.generatedAt)) {
-    if (!options.skipAi && existing.source === "rules" && isAiConfigured()) {
-      const { analysis, model } = await interpretWithAi(existing.snapshot, existing.analysis);
-      if (model) {
-        return upsertDailyInsight(
-          organizationId,
-          {
-            periodDate,
-            source: "ai",
-            model,
-            overallRisk: analysis.overallRisk,
-            headline: analysis.headline,
-            summary: analysis.summary,
-            snapshot: existing.snapshot,
-            findings: existing.findings,
-            analysis,
-          },
-          client
-        );
-      }
-    }
-    return existing;
+  if (!options.force) {
+    return getOrCreateDailyInsight(organizationId, client);
   }
 
-  const snapshot = await collectQualitySnapshot(organizationId, client);
-  return persistFromSnapshot(organizationId, snapshot, client, Boolean(options.skipAi));
+  const payload = await buildInsightPayload(organizationId, client, { withAi: true });
+  return upsertDailyInsight(organizationId, payload, client);
 }
 
 export async function loadOrCreateDailyInsight(
@@ -252,13 +278,7 @@ export async function loadOrCreateDailyInsight(
   client: InsightDbClient
 ): Promise<{ insight: DailyInsight | null; missingTable: boolean }> {
   try {
-    const latest = await getLatestInsight(organizationId, client);
-    if (latest && latest.periodDate === periodDateInSantiago() && isInsightFresh(latest.generatedAt)) {
-      return { insight: latest, missingTable: false };
-    }
-    const insight = await generateDailyInsight(organizationId, client, {
-      skipAi: true,
-    });
+    const insight = await getOrCreateDailyInsight(organizationId, client);
     return { insight, missingTable: false };
   } catch (error) {
     const err = error as { message?: string; code?: string };

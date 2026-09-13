@@ -153,7 +153,7 @@ export function CapaDashboard({ ncs, actionsByNc, members }: CapaDashboardProps)
             description={
               tab === "closed"
                 ? "Las NC cerradas aparecerán aquí"
-                : "Registra una NC manualmente o genera una desde PRPs o auditorías"
+                : "Registra una NC manualmente o genera una desde monitoreo o auditorías"
             }
             actionLabel={tab !== "closed" ? "Registrar NC" : undefined}
             onAction={

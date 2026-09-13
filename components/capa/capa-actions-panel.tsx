@@ -5,7 +5,7 @@ import { Plus } from "lucide-react";
 import { AddActionModal } from "@/components/capa/add-action-modal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input, Textarea } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/input";
 import {
   Table,
   TableBody,

@@ -24,7 +24,7 @@ function planStatusLabel(status: string): string {
 
 export function buildFindings(snapshot: QualitySnapshot): InsightFinding[] {
   const findings: InsightFinding[] = [];
-  const { haccp, monitoreo, ncs, training } = snapshot;
+  const { haccp, monitoreo, ncs } = snapshot;
 
   if (!haccp.hasPlan) {
     findings.push({
@@ -204,32 +204,6 @@ export function buildFindings(snapshot: QualitySnapshot): InsightFinding[] {
       title: "Origen recurrente de no conformidades",
       detail: `${topOrigin[1]} NC abiertas vienen de ${getOriginLabel(topOrigin[0] as NcOrigin)}.`,
       href: "/capa",
-    });
-  }
-
-  if (training.expiredCompletions.length > 0) {
-    findings.push({
-      id: "training-expired",
-      module: "haccp",
-      severity: "warning",
-      title: "Certificaciones de capacitación vencidas",
-      detail: training.expiredCompletions
-        .slice(0, 3)
-        .map((t) => `${t.userName} · ${t.courseTitle}`)
-        .join("; "),
-      href: "/haccp",
-    });
-  } else if (training.expiringSoon.length > 0) {
-    findings.push({
-      id: "training-expiring",
-      module: "haccp",
-      severity: "info",
-      title: "Capacitaciones por vencer (30 días)",
-      detail: training.expiringSoon
-        .slice(0, 3)
-        .map((t) => `${t.userName} · ${t.courseTitle}`)
-        .join("; "),
-      href: "/haccp",
     });
   }
 

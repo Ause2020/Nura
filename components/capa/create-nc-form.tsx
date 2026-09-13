@@ -10,7 +10,7 @@ import { Input, Textarea } from "@/components/ui/input";
 import { NC_ORIGIN_CREATE_OPTIONS, SEVERITY_OPTIONS } from "@/lib/capa/constants";
 import { shouldQuarantineLot } from "@/lib/capa/quarantine";
 import { computeCapaSignatureHash } from "@/lib/capa/workflow";
-import { generateNcNumber, getSuggestedDueDate } from "@/lib/capa/utils";
+import { getSuggestedDueDate } from "@/lib/capa/utils";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import type { NcOrigin, NcSeverity } from "@/types/database";

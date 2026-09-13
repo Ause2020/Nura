@@ -29,7 +29,7 @@ const STEPS = [
   { label: "Listo" },
 ];
 
-export function OnboardingWizard({ userId }: { userId: string }) {
+export function OnboardingWizard() {
   const router = useRouter();
   const { showToast } = useToast();
 

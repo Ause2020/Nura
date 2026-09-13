@@ -1,9 +1,6 @@
 import { getOriginLabel } from "@/lib/capa/constants";
 import { countCompletedSteps } from "@/lib/haccp-plan/checklists";
-import type { ChecklistProgress } from "@/lib/haccp-plan/types";
 import {
-  computeAvgCapaClosureDays,
-  computeMonthlyTrend,
   computeSystemScore,
   startOfDay,
   type ActivityItem,
@@ -13,18 +10,27 @@ import {
   type NcOriginCount,
   type OperationalMetrics,
 } from "@/lib/dashboard/utils";
+import { buildModuleKpiWidgetsFromMetrics, type ModuleKpiWidget } from "@/lib/dashboard/kpi-widgets";
 import {
-  collectSiteAreas,
-  computeModuleKpiWidgets,
-  type ModuleKpiWidget,
-} from "@/lib/dashboard/kpi-widgets";
+  parseDashboardMetrics,
+  recordsComplianceRate,
+} from "@/lib/dashboard/metrics";
+import {
+  isMissingRpcError,
+  loadDashboardMetricsFallback,
+} from "@/lib/dashboard/metrics-fallback";
 import { createClient } from "@/lib/supabase/server";
-import type {
-  Audit,
-  ControlledDocument,
-  HaccpProduct,
-  Nonconformity,
-} from "@/types/database";
+import type { NcOrigin } from "@/types/database";
+
+const LIMIT = {
+  activitySubmissions: 8,
+  activityAudits: 5,
+  activityNcs: 5,
+  todayAudits: 8,
+  openNcs: 15,
+  capaActions: 20,
+  weekItems: 5,
+} as const;
 
 export interface ThisWeekItem {
   id: string;
@@ -35,16 +41,11 @@ export interface ThisWeekItem {
 }
 
 export interface ThisWeekData {
-  /** NCs abiertas (no cerradas) creadas en los últimos 7 días */
   newNcs: ThisWeekItem[];
   totalOpenNcs: number;
-  /** Acciones CAPA ya vencidas */
   overdueCapaActions: ThisWeekItem[];
-  /** Acciones CAPA que vencen en los próximos 7 días */
   dueSoonCapaActions: ThisWeekItem[];
-  /** Monitoreos de proceso con desviación en los últimos 7 días */
   deviationRecords: ThisWeekItem[];
-  /** Auditorías programadas en los próximos 14 días */
   upcomingAudits: ThisWeekItem[];
 }
 
@@ -63,6 +64,35 @@ export interface DashboardData {
   thisWeek: ThisWeekData;
 }
 
+function isoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function truncateLabel(text: string): string {
+  if (text.length <= 60) return text;
+  return `${text.slice(0, 57)}…`;
+}
+
+function severityLabel(severity: string): string {
+  if (severity === "critical") return "Crítica";
+  if (severity === "major") return "Mayor";
+  if (severity === "minor") return "Menor";
+  return "Observación";
+}
+
+function ncStatusLabel(status: string): string {
+  if (status === "open") return "Abierta";
+  if (status === "in_analysis") return "En análisis";
+  if (status === "overdue") return "Vencida";
+  return status;
+}
+
+function templateName(
+  row: { production_form_templates?: { name?: string } | null }
+): string {
+  return row.production_form_templates?.name ?? "Monitoreo";
+}
+
 export async function fetchDashboardData(
   orgId: string,
   userName: string
@@ -71,75 +101,141 @@ export async function fetchDashboardData(
   const today = startOfDay(new Date());
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
+  const sevenDaysAgo = new Date(today.getTime() - 7 * 86400000);
+  const sevenDaysAhead = new Date(today.getTime() + 7 * 86400000);
+  const fourteenDaysAhead = new Date(today.getTime() + 14 * 86400000);
 
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-  const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-  const monthStartIso = monthStart.toISOString().split("T")[0];
-  const monthEndIso = monthEnd.toISOString().split("T")[0];
+  const todayIso = isoDate(today);
+  const tomorrowIso = isoDate(tomorrow);
+  const weekAgoIso = sevenDaysAgo.toISOString();
+  const weekAheadIso = isoDate(sevenDaysAhead);
+  const twoWeeksIso = isoDate(fourteenDaysAhead);
 
   const [
-    { data: productsData },
-    { data: planData },
-    { data: auditsData },
-    { data: ncsData },
+    { data: metricsRpc, error: metricsError },
+    { data: upcomingAuditsData },
+    { data: recentAuditsData },
+    { data: openNcsData },
+    { data: recentNcsData },
     { data: capaActionsData },
-    { data: documentsData },
-    { data: productionSubmissionsData },
-    { data: productionTemplatesData },
+    { data: recentSubmissionsData },
+    { data: deviationData },
   ] = await Promise.all([
-    supabase
-      .from("haccp_products")
-      .select("id, name, plan_completion, status")
-      .eq("organization_id", orgId)
-      .neq("status", "archived"),
-    supabase
-      .from("haccp_plans")
-      .select("checklist_progress")
-      .eq("organization_id", orgId)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+    supabase.rpc("get_dashboard_metrics"),
     supabase
       .from("audits")
-      .select(
-        "id, title, scheduled_date, completed_date, status, compliance_score, created_at"
-      )
+      .select("id, title, scheduled_date, status")
       .eq("organization_id", orgId)
-      .order("scheduled_date", { ascending: false }),
+      .in("status", ["scheduled", "in_progress"])
+      .gte("scheduled_date", todayIso)
+      .lte("scheduled_date", twoWeeksIso)
+      .order("scheduled_date", { ascending: true })
+      .limit(LIMIT.todayAudits),
+    supabase
+      .from("audits")
+      .select("id, title, completed_date, created_at")
+      .eq("organization_id", orgId)
+      .eq("status", "completed")
+      .order("completed_date", { ascending: false, nullsFirst: false })
+      .limit(LIMIT.activityAudits),
     supabase
       .from("nonconformities")
-      .select(
-        "id, nc_number, status, severity, origin, due_date, detected_at, created_at, closed_at, area"
-      )
+      .select("id, nc_number, status, severity, due_date, detected_at, area")
       .eq("organization_id", orgId)
-      .order("detected_at", { ascending: false }),
+      .neq("status", "closed")
+      .or(
+        `and(due_date.gte.${todayIso},due_date.lte.${tomorrowIso}),detected_at.gte.${weekAgoIso}`
+      )
+      .order("detected_at", { ascending: false })
+      .limit(LIMIT.openNcs),
+    supabase
+      .from("nonconformities")
+      .select("id, nc_number, status, detected_at, closed_at, created_at")
+      .eq("organization_id", orgId)
+      .order("detected_at", { ascending: false })
+      .limit(LIMIT.activityNcs),
     supabase
       .from("capa_actions")
       .select("id, status, due_date, description, nc_id")
-      .eq("organization_id", orgId),
-    supabase
-      .from("controlled_documents")
-      .select("id, status, next_review_date")
-      .eq("organization_id", orgId),
+      .eq("organization_id", orgId)
+      .neq("status", "completed")
+      .lte("due_date", weekAheadIso)
+      .order("due_date", { ascending: true })
+      .limit(LIMIT.capaActions),
     supabase
       .from("production_form_submissions")
-      .select("id, submitted_at, status, has_deviation, area, template_id")
+      .select(
+        "id, submitted_at, has_deviation, area, template_id, production_form_templates(name)"
+      )
       .eq("organization_id", orgId)
       .order("submitted_at", { ascending: false })
-      .limit(500),
+      .limit(LIMIT.activitySubmissions),
     supabase
-      .from("production_form_templates")
-      .select("id, name, area")
+      .from("production_form_submissions")
+      .select(
+        "id, submitted_at, area, template_id, production_form_templates(name)"
+      )
       .eq("organization_id", orgId)
-      .eq("is_active", true),
+      .eq("has_deviation", true)
+      .gte("submitted_at", weekAgoIso)
+      .order("submitted_at", { ascending: false })
+      .limit(LIMIT.weekItems),
   ]);
 
-  const products = (productsData ?? []) as Pick<
-    HaccpProduct,
-    "id" | "name" | "plan_completion" | "status"
-  >[];
-  const audits = (auditsData ?? []) as Audit[];
-  const ncs = (ncsData ?? []) as Nonconformity[];
+  if (metricsError && !isMissingRpcError(metricsError)) {
+    throw new Error(
+      metricsError.message ||
+        "No se pudieron cargar los indicadores del dashboard (aplica 039_dashboard_metrics.sql)"
+    );
+  }
+
+  const aggregates = metricsError
+    ? await loadDashboardMetricsFallback(supabase, orgId)
+    : parseDashboardMetrics(metricsRpc);
+  const completedSteps = aggregates.haccp_checklist_progress
+    ? countCompletedSteps(aggregates.haccp_checklist_progress)
+    : 0;
+  const haccpAvg = (completedSteps / 12) * 100;
+  const complianceRate = recordsComplianceRate(aggregates.submissions);
+
+  const systemScore = computeSystemScore({
+    haccpAvgCompletion: haccpAvg,
+    recordsCompliancePct: complianceRate,
+    openNcs: aggregates.ncs.open,
+    overdueNcs: aggregates.ncs.overdue,
+    auditsCompleted: aggregates.audits_month.completed,
+    auditsScheduled: aggregates.audits_month.scheduled,
+  });
+
+  const upcomingAudits = (upcomingAuditsData ?? []) as {
+    id: string;
+    title: string;
+    scheduled_date: string;
+    status: string;
+  }[];
+  const recentAudits = (recentAuditsData ?? []) as {
+    id: string;
+    title: string;
+    completed_date: string | null;
+    created_at: string;
+  }[];
+  const openNcs = (openNcsData ?? []) as {
+    id: string;
+    nc_number: string;
+    status: string;
+    severity: string;
+    due_date: string | null;
+    detected_at: string;
+    area: string | null;
+  }[];
+  const recentNcs = (recentNcsData ?? []) as {
+    id: string;
+    nc_number: string;
+    status: string;
+    detected_at: string;
+    closed_at: string | null;
+    created_at: string;
+  }[];
   const capaActions = (capaActionsData ?? []) as {
     id: string;
     status: string;
@@ -147,254 +243,90 @@ export async function fetchDashboardData(
     description: string;
     nc_id: string;
   }[];
-  const documents = (documentsData ?? []) as ControlledDocument[];
-  const productionSubmissions = (productionSubmissionsData ?? []) as {
+  const recentSubmissions = (recentSubmissionsData ?? []) as {
     id: string;
     submitted_at: string;
-    status: string;
     has_deviation: boolean;
     area: string | null;
     template_id: string;
+    production_form_templates?: { name?: string } | null;
   }[];
-  const productionTemplates = (productionTemplatesData ?? []) as {
+  const deviations = (deviationData ?? []) as {
     id: string;
-    name: string;
+    submitted_at: string;
     area: string | null;
+    template_id: string;
+    production_form_templates?: { name?: string } | null;
   }[];
-
-  const templateNameById = new Map(
-    productionTemplates.map((t) => [t.id, t.name] as const)
-  );
-
-  const moduleWidgets = computeModuleKpiWidgets({
-    productionSubmissions,
-    documents,
-    ncs,
-    audits,
-  });
-
-  const siteAreas = collectSiteAreas(
-    productionSubmissions,
-    productionTemplates.map((t) => t.area)
-  );
-
-  const submissionsThisMonth = productionSubmissions.filter(
-    (s) => new Date(s.submitted_at) >= monthStart
-  );
-  const submissionsOkThisMonth = submissionsThisMonth.filter(
-    (s) => s.status === "ok" && !s.has_deviation
-  );
-  const recordsComplianceRate =
-    submissionsThisMonth.length > 0
-      ? Math.round(
-          (submissionsOkThisMonth.length / submissionsThisMonth.length) * 100
-        )
-      : 100;
 
   const tasks: DashboardTask[] = [];
-
-  for (const audit of audits) {
-    const scheduled = startOfDay(new Date(audit.scheduled_date));
-    if (
-      isSameDayHelper(scheduled, today) &&
-      (audit.status === "scheduled" || audit.status === "in_progress")
-    ) {
-      tasks.push({
-        id: `audit-${audit.id}`,
-        type: "audit",
-        title: audit.title,
-        subtitle: "Auditoría programada hoy",
-        href: `/auditorias/${audit.id}/ejecutar`,
-        urgent: false,
-      });
-    }
+  for (const audit of upcomingAudits) {
+    if (audit.scheduled_date !== todayIso) continue;
+    tasks.push({
+      id: `audit-${audit.id}`,
+      type: "audit",
+      title: audit.title,
+      subtitle: "Auditoría programada hoy",
+      href: `/auditorias/${audit.id}/ejecutar`,
+      urgent: false,
+    });
   }
-
-  for (const nc of ncs) {
-    if (nc.status === "closed" || !nc.due_date) continue;
-    const due = startOfDay(new Date(nc.due_date));
-    const isToday = isSameDayHelper(due, today);
-    const isTomorrow = isSameDayHelper(due, tomorrow);
-    if (isToday || isTomorrow) {
-      tasks.push({
-        id: `nc-${nc.id}`,
-        type: "capa",
-        title: nc.nc_number,
-        subtitle: isToday ? "Vence hoy" : "Vence mañana",
-        href: `/capa/${nc.id}`,
-        urgent: isToday || nc.severity === "critical",
-      });
-    }
-  }
-
-  const planProgress = (planData as { checklist_progress?: ChecklistProgress } | null)
-    ?.checklist_progress;
-  const completedSteps = planProgress ? countCompletedSteps(planProgress) : 0;
-  const hasNewPlan = Boolean(planData);
-  const haccpComplete = hasNewPlan
-    ? completedSteps
-    : products.filter((p) => p.plan_completion >= 80).length;
-  const haccpTotal = hasNewPlan ? 12 : products.length;
-  const haccpAvg = hasNewPlan
-    ? (completedSteps / 12) * 100
-    : products.length > 0
-      ? products.reduce((s, p) => s + p.plan_completion, 0) / products.length
-      : 0;
-
-  const openNcs = ncs.filter((nc) => nc.status !== "closed").length;
-  const criticalOrOverdue = ncs.filter(
-    (nc) =>
-      nc.status !== "closed" &&
-      (nc.severity === "critical" ||
-        nc.status === "overdue" ||
-        (nc.due_date && new Date(nc.due_date) < today))
-  ).length;
-
-  const auditsThisMonth = audits.filter((a) => {
-    const d = a.scheduled_date;
-    return d >= monthStartIso && d <= monthEndIso;
-  });
-  const auditsCompletedMonth = auditsThisMonth.filter(
-    (a) => a.status === "completed"
-  ).length;
-
-  const overdueCapas = capaActions.filter(
-    (a) =>
-      a.status !== "completed" &&
-      startOfDay(new Date(a.due_date)) < today
-  ).length;
-
-  const overdueNcs = ncs.filter(
-    (nc) =>
-      nc.status !== "closed" &&
-      nc.due_date &&
-      startOfDay(new Date(nc.due_date)) < today
-  ).length;
-
-  const systemScore = computeSystemScore({
-    haccpAvgCompletion: haccpAvg,
-    recordsCompliancePct: recordsComplianceRate,
-    openNcs,
-    overdueNcs,
-    auditsCompleted: auditsCompletedMonth,
-    auditsScheduled: auditsThisMonth.length,
-  });
-
-  const metrics: OperationalMetrics = {
-    haccpComplete,
-    haccpTotal,
-    recordsTemplatesActive: productionTemplates.length,
-    recordsSubmissionsMonth: submissionsThisMonth.length,
-    openNcs,
-    criticalOrOverdueNcs: criticalOrOverdue,
-    auditsScheduledMonth: auditsThisMonth.length,
-    auditsCompletedMonth,
-    systemScore,
-    overdueCapas,
-  };
-
-  const activities: ActivityItem[] = [];
-
-  for (const sub of productionSubmissions.slice(0, 15)) {
-    const name = templateNameById.get(sub.template_id) ?? "Monitoreo";
-    activities.push({
-      id: `registro-${sub.id}`,
-      type: "registro",
-      description: `Monitoreo: ${name}${sub.has_deviation ? " (desviación)" : ""}`,
-      timestamp: sub.submitted_at,
-      href: "/registros",
+  for (const nc of openNcs) {
+    if (!nc.due_date) continue;
+    const isToday = nc.due_date === todayIso;
+    const isTomorrow = nc.due_date === tomorrowIso;
+    if (!isToday && !isTomorrow) continue;
+    tasks.push({
+      id: `nc-${nc.id}`,
+      type: "capa",
+      title: nc.nc_number,
+      subtitle: isToday ? "Vence hoy" : "Vence mañana",
+      href: `/capa/${nc.id}`,
+      urgent: isToday || nc.severity === "critical",
     });
   }
 
-  for (const audit of audits.filter((a) => a.status === "completed").slice(0, 10)) {
-    activities.push({
+  const activities: ActivityItem[] = [
+    ...recentSubmissions.map((sub) => ({
+      id: `registro-${sub.id}`,
+      type: "registro" as const,
+      description: `Monitoreo: ${templateName(sub)}${sub.has_deviation ? " (desviación)" : ""}`,
+      timestamp: sub.submitted_at,
+      href: "/registros",
+    })),
+    ...recentAudits.map((audit) => ({
       id: `audit-${audit.id}`,
-      type: "audit",
+      type: "audit" as const,
       description: `Auditoría completada: ${audit.title}`,
       timestamp: audit.completed_date ?? audit.created_at,
       href: `/auditorias/${audit.id}/informe`,
-    });
-  }
-
-  for (const nc of ncs.slice(0, 10)) {
-    activities.push({
+    })),
+    ...recentNcs.map((nc) => ({
       id: `nc-${nc.id}`,
-      type: nc.status === "closed" ? "capa" : "nc",
+      type: (nc.status === "closed" ? "capa" : "nc") as ActivityItem["type"],
       description:
         nc.status === "closed"
           ? `NC cerrada: ${nc.nc_number}`
           : `Nueva NC: ${nc.nc_number}`,
-      timestamp: nc.status === "closed" ? nc.closed_at ?? nc.created_at : nc.detected_at,
+      timestamp:
+        nc.status === "closed" ? nc.closed_at ?? nc.created_at : nc.detected_at,
       href: `/capa/${nc.id}`,
-    });
-  }
-
-  activities.sort(
+    })),
+  ].sort(
     (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
   );
 
-  const completedAudits = audits.filter((a) => a.status === "completed");
-  const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-  const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
-
-  const auditsLastMonth = completedAudits.filter((a) => {
-    if (!a.completed_date) return false;
-    const d = new Date(a.completed_date);
-    return d >= lastMonthStart && d <= lastMonthEnd;
-  });
-  const auditsThisMonthCompleted = completedAudits.filter((a) => {
-    if (!a.completed_date) return false;
-    const d = new Date(a.completed_date);
-    return d >= monthStart && d <= monthEnd;
-  });
-
-  const avgComplianceLastMonth =
-    auditsLastMonth.length > 0
-      ? auditsLastMonth.reduce((s, a) => s + Number(a.compliance_score ?? 0), 0) /
-        auditsLastMonth.length
-      : null;
-  const avgComplianceThisMonth =
-    auditsThisMonthCompleted.length > 0
-      ? auditsThisMonthCompleted.reduce(
-          (s, a) => s + Number(a.compliance_score ?? 0),
-          0
-        ) / auditsThisMonthCompleted.length
-      : null;
-
-  const avgClosure = computeAvgCapaClosureDays(ncs);
-  const closedLast30 = ncs.filter((nc) => {
-    if (!nc.closed_at) return false;
-    return Date.now() - new Date(nc.closed_at).getTime() < 30 * 86400000;
-  });
-  const avgClosureRecent =
-    closedLast30.length > 0
-      ? computeAvgCapaClosureDays(closedLast30)
-      : avgClosure;
-
-  const originMap = new Map<string, number>();
-  for (const nc of ncs) {
-    originMap.set(nc.origin, (originMap.get(nc.origin) ?? 0) + 1);
-  }
-  const ncByOrigin: NcOriginCount[] = Array.from(originMap.entries()).map(
-    ([origin, count]) => ({
-      origin,
-      label: getOriginLabel(origin as Nonconformity["origin"]),
-      count,
-    })
-  );
-
+  const avgThis = aggregates.audit_compliance.this_month;
+  const avgLast = aggregates.audit_compliance.last_month;
   const kpis: ExecutiveKpi[] = [
     {
       label: "Conformidad en auditorías",
-      value:
-        avgComplianceThisMonth !== null
-          ? `${Math.round(avgComplianceThisMonth)}%`
-          : "—",
+      value: avgThis !== null ? `${Math.round(avgThis)}%` : "—",
       trend:
-        avgComplianceLastMonth !== null && avgComplianceThisMonth !== null
-          ? avgComplianceThisMonth >= avgComplianceLastMonth
+        avgLast !== null && avgThis !== null
+          ? avgThis >= avgLast
             ? "up"
-            : avgComplianceThisMonth < avgComplianceLastMonth
+            : avgThis < avgLast
               ? "down"
               : "flat"
           : "flat",
@@ -402,150 +334,122 @@ export async function fetchDashboardData(
     },
     {
       label: "Tiempo cierre CAPA",
-      value: avgClosureRecent !== null ? `${avgClosureRecent} días` : "—",
+      value:
+        aggregates.avg_closure_days !== null
+          ? `${aggregates.avg_closure_days} días`
+          : "—",
       trend: "flat",
       trendLabel: "promedio reciente",
     },
     {
       label: "NCs registradas",
-      value: String(ncs.length),
+      value: String(aggregates.ncs.total),
       trend:
-        ncs.filter((nc) => new Date(nc.created_at) >= monthStart).length >
-        ncs.filter((nc) => {
-          const d = new Date(nc.created_at);
-          return d >= lastMonthStart && d <= lastMonthEnd;
-        }).length
-          ? "down"
-          : "up",
+        aggregates.ncs.this_month > aggregates.ncs.last_month ? "down" : "up",
       trendLabel: "total acumulado",
     },
     {
       label: "Monitoreo del mes",
-      value: `${recordsComplianceRate}%`,
+      value: `${complianceRate}%`,
       trend:
-        recordsComplianceRate >= 90
-          ? "up"
-          : recordsComplianceRate >= 75
-            ? "flat"
-            : "down",
-      trendLabel: `${submissionsThisMonth.length} completados`,
+        complianceRate >= 90 ? "up" : complianceRate >= 75 ? "flat" : "down",
+      trendLabel: `${aggregates.submissions.month_total} completados`,
     },
   ];
 
-  // ─── "Esta semana" — computed from already-fetched data ─────────────────────
-  const sevenDaysAgo = new Date(today.getTime() - 7 * 86400000);
-  const sevenDaysAhead = new Date(today.getTime() + 7 * 86400000);
-  const fourteenDaysAhead = new Date(today.getTime() + 14 * 86400000);
+  const monthlyTrend: MonthlyScorePoint[] = aggregates.monthly.map((point) => {
+    const [year, month] = point.ym.split("-").map(Number);
+    const label = Number.isFinite(year) && Number.isFinite(month)
+      ? new Date(year, month - 1, 1).toLocaleDateString("es", { month: "short" })
+      : point.ym;
+    const score =
+      point.audit_avg != null
+        ? Math.round(point.audit_avg)
+        : Math.max(35, 100 - point.nc_count * 10);
+    return { month: label, score };
+  });
 
-  const getSeverityLabel = (s: string) =>
-    s === "critical" ? "Crítica" : s === "major" ? "Mayor" : s === "minor" ? "Menor" : "Observación";
-  const getStatusLabel = (s: string) =>
-    s === "open" ? "Abierta" : s === "in_analysis" ? "En análisis" : s === "overdue" ? "Vencida" : s;
-
-  // New NCs (last 7 days, not closed)
-  const newNcs: ThisWeekItem[] = ncs
-    .filter((nc) => nc.status !== "closed" && new Date(nc.detected_at) >= sevenDaysAgo)
-    .slice(0, 5)
-    .map((nc) => ({
-      id: nc.id,
-      href: `/capa/${nc.id}`,
-      label: nc.nc_number,
-      sublabel: `${getSeverityLabel(nc.severity)} · ${getStatusLabel(nc.status)}${nc.area ? ` · ${nc.area}` : ""}`,
-      urgent: nc.severity === "critical" || nc.status === "overdue",
-    }));
-
-  const totalOpenNcs = ncs.filter((nc) => nc.status !== "closed").length;
-
-  // Overdue CAPA actions (due < today, not completed)
-  const overdueCapaActions: ThisWeekItem[] = capaActions
-    .filter(
-      (a) => a.status !== "completed" && startOfDay(new Date(a.due_date)) < today
-    )
-    .slice(0, 5)
-    .map((a) => ({
-      id: a.id,
-      href: `/capa/${a.nc_id}`,
-      label: a.description.length > 60 ? a.description.slice(0, 57) + "…" : a.description,
-      sublabel: `Venció el ${new Date(a.due_date).toLocaleDateString("es")}`,
-      urgent: true,
-    }));
-
-  // CAPA actions due soon (today → +7 days, not completed)
-  const dueSoonCapaActions: ThisWeekItem[] = capaActions
-    .filter((a) => {
-      if (a.status === "completed") return false;
-      const d = startOfDay(new Date(a.due_date));
-      return d >= today && d <= sevenDaysAhead;
-    })
-    .slice(0, 5)
-    .map((a) => ({
-      id: a.id,
-      href: `/capa/${a.nc_id}`,
-      label: a.description.length > 60 ? a.description.slice(0, 57) + "…" : a.description,
-      sublabel: `Vence el ${new Date(a.due_date).toLocaleDateString("es")}`,
-      urgent: false,
-    }));
-
-  // Deviation records (last 7 days)
-  const deviationRecords: ThisWeekItem[] = productionSubmissions
-    .filter((s) => s.has_deviation && new Date(s.submitted_at) >= sevenDaysAgo)
-    .slice(0, 5)
-    .map((s) => {
-      const name = templateNameById.get(s.template_id) ?? "Monitoreo";
-      return {
-        id: s.id,
-        href: `/registros/${s.id}`,
-        label: name,
-        sublabel: `${new Date(s.submitted_at).toLocaleDateString("es")}${s.area ? ` · ${s.area}` : ""}`,
-        urgent: true,
-      };
-    });
-
-  // Upcoming audits (next 14 days, not completed/cancelled)
-  const upcomingAudits: ThisWeekItem[] = audits
-    .filter((a) => {
-      if (a.status === "completed" || a.status === "cancelled") return false;
-      const d = new Date(a.scheduled_date);
-      return d >= today && d <= fourteenDaysAhead;
-    })
-    .slice(0, 5)
-    .map((a) => ({
-      id: a.id,
-      href:
-        a.status === "in_progress"
-          ? `/auditorias/${a.id}/ejecutar`
-          : `/auditorias/${a.id}/ejecutar`,
-      label: a.title,
-      sublabel: new Date(a.scheduled_date).toLocaleDateString("es"),
-      urgent: a.status === "in_progress",
-    }));
+  const ncByOrigin: NcOriginCount[] = aggregates.nc_by_origin.map((item) => ({
+    origin: item.origin,
+    label: getOriginLabel(item.origin as NcOrigin),
+    count: item.count,
+  }));
 
   const thisWeek: ThisWeekData = {
-    newNcs,
-    totalOpenNcs,
-    overdueCapaActions,
-    dueSoonCapaActions,
-    deviationRecords,
-    upcomingAudits,
+    newNcs: openNcs
+      .filter(
+        (nc) => nc.status !== "closed" && new Date(nc.detected_at) >= sevenDaysAgo
+      )
+      .slice(0, LIMIT.weekItems)
+      .map((nc) => ({
+        id: nc.id,
+        href: `/capa/${nc.id}`,
+        label: nc.nc_number,
+        sublabel: `${severityLabel(nc.severity)} · ${ncStatusLabel(nc.status)}${nc.area ? ` · ${nc.area}` : ""}`,
+        urgent: nc.severity === "critical" || nc.status === "overdue",
+      })),
+    totalOpenNcs: aggregates.ncs.open,
+    overdueCapaActions: capaActions
+      .filter((action) => action.due_date < todayIso)
+      .slice(0, LIMIT.weekItems)
+      .map((action) => ({
+        id: action.id,
+        href: `/capa/${action.nc_id}`,
+        label: truncateLabel(action.description),
+        sublabel: `Venció el ${new Date(action.due_date).toLocaleDateString("es")}`,
+        urgent: true,
+      })),
+    dueSoonCapaActions: capaActions
+      .filter(
+        (action) => action.due_date >= todayIso && action.due_date <= weekAheadIso
+      )
+      .slice(0, LIMIT.weekItems)
+      .map((action) => ({
+        id: action.id,
+        href: `/capa/${action.nc_id}`,
+        label: truncateLabel(action.description),
+        sublabel: `Vence el ${new Date(action.due_date).toLocaleDateString("es")}`,
+        urgent: false,
+      })),
+    deviationRecords: deviations.slice(0, LIMIT.weekItems).map((row) => ({
+      id: row.id,
+      href: `/registros/${row.id}`,
+      label: templateName(row),
+      sublabel: `${new Date(row.submitted_at).toLocaleDateString("es")}${row.area ? ` · ${row.area}` : ""}`,
+      urgent: true,
+    })),
+    upcomingAudits: upcomingAudits.slice(0, LIMIT.weekItems).map((audit) => ({
+      id: audit.id,
+      href: `/auditorias/${audit.id}/ejecutar`,
+      label: audit.title,
+      sublabel: new Date(audit.scheduled_date).toLocaleDateString("es"),
+      urgent: audit.status === "in_progress",
+    })),
   };
-  // ──────────────────────────────────────────────────────────────────────────
 
   return {
     userName,
     tasks,
-    metrics,
+    metrics: {
+      haccpComplete: completedSteps,
+      haccpTotal: 12,
+      recordsTemplatesActive: aggregates.records_templates_active,
+      recordsSubmissionsMonth: aggregates.submissions.month_total,
+      openNcs: aggregates.ncs.open,
+      criticalOrOverdueNcs: aggregates.ncs.critical_or_overdue,
+      auditsScheduledMonth: aggregates.audits_month.scheduled,
+      auditsCompletedMonth: aggregates.audits_month.completed,
+      systemScore,
+      overdueCapas: aggregates.overdue_capa_actions,
+    },
     activities: activities.slice(0, 10),
     globalScore: systemScore,
     kpis,
-    monthlyTrend: computeMonthlyTrend(completedAudits, ncs),
+    monthlyTrend,
     ncByOrigin,
-    recordsComplianceRate,
-    moduleWidgets,
-    siteAreas,
+    recordsComplianceRate: complianceRate,
+    moduleWidgets: buildModuleKpiWidgetsFromMetrics(aggregates),
+    siteAreas: aggregates.site_areas,
     thisWeek,
   };
-}
-
-function isSameDayHelper(a: Date, b: Date): boolean {
-  return startOfDay(a).getTime() === startOfDay(b).getTime();
 }

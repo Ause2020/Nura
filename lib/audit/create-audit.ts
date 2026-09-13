@@ -93,7 +93,11 @@ async function insertChecklistRows(
   const first = await supabase.from("audit_checklist_items").insert(rows);
   if (!first.error) return { ok: true };
 
-  const fallbackRows = rows.map(({ result: _result, ...row }) => row);
+  const fallbackRows = rows.map((row) => {
+    const { result, ...rest } = row;
+    void result;
+    return rest;
+  });
   const retry = await supabase.from("audit_checklist_items").insert(fallbackRows);
   if (!retry.error) return { ok: true };
 

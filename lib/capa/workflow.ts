@@ -67,7 +67,6 @@ export interface StageValidationContext {
   nc: Nonconformity;
   actions: CapaAction[];
   fiveWhys: Nc5Whys | null;
-  pendingCapaTraining?: number;
 }
 
 export function validateStageAdvance(

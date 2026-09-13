@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
-import { generateDailyInsight } from "@/lib/ai-insights/generate";
-import { isInsightFresh, periodDateInSantiago } from "@/lib/ai-insights/period";
-import { getInsightForDate, getLatestInsight } from "@/lib/ai-insights/store";
+import {
+  generateDailyInsight,
+  getOrCreateDailyInsight,
+} from "@/lib/ai-insights/generate";
+import { getLatestInsight } from "@/lib/ai-insights/store";
 import { PERMISSIONS } from "@/lib/auth/permissions";
 import { authzResponse, requirePermission } from "@/lib/auth/require-permission";
 
@@ -21,7 +23,7 @@ export async function GET() {
   return NextResponse.json({ insight });
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   let supabase;
   let orgId: string;
   try {
@@ -33,16 +35,16 @@ export async function POST() {
     return NextResponse.json(body, { status });
   }
 
-  const today = await getInsightForDate(orgId, periodDateInSantiago(), supabase);
-  if (today && isInsightFresh(today.generatedAt) && today.source === "ai") {
-    return NextResponse.json({ insight: today, cached: true });
-  }
+  const body = (await request.json().catch(() => ({}))) as { force?: unknown };
+  const force = body.force === true;
 
   try {
-    const insight = await generateDailyInsight(orgId, supabase);
+    const insight = force
+      ? await generateDailyInsight(orgId, supabase, { force: true })
+      : await getOrCreateDailyInsight(orgId, supabase);
     return NextResponse.json({
       insight,
-      cached: insight.source === "ai" && today?.source === "ai",
+      cached: !force,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "No se pudo generar el análisis";

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CreateVersionModal } from "@/components/haccp-plan/create-version-modal";
 import { PlanStepper } from "@/components/haccp-plan/plan-stepper";
 import { RiskMatrixModal } from "@/components/haccp-plan/risk-matrix-modal";
@@ -32,12 +32,18 @@ import {
   updatePlanFields,
   updateProduct,
   updateTeamMember,
-  upsertCcpDecision,
+  upsertCcpDecisions,
   upsertValidation,
+  primeHaccpWriteCache,
 } from "@/lib/haccp-plan/data-service";
 import { countCompletedSteps } from "@/lib/haccp-plan/checklists";
 import { isSignificant } from "@/lib/haccp-plan/risk";
-import { saveStepData } from "@/lib/haccp-plan/step-data-service";
+import {
+  primeStepDataWrites,
+  readStepLocalBackup,
+  saveStepData,
+  writeStepLocalBackup,
+} from "@/lib/haccp-plan/step-data-service";
 import type { StepPayloadMap } from "@/lib/haccp-plan/step-data-service";
 import { buildStepSnapshot, createPlanVersionDocument } from "@/lib/haccp-plan/snapshots";
 import { useDebouncedCallback } from "@/lib/haccp-plan/use-debounced-callback";
@@ -104,6 +110,37 @@ export function HaccpPlanWizard({
   const diagramsRef = useRef(diagrams);
   diagramsRef.current = diagrams;
   const previousStep = useRef(currentStep);
+  const planPatchRef = useRef<
+    Partial<{
+      current_step: number;
+      status: HaccpPlanDetails["plan"]["status"];
+      checklist_progress: ChecklistProgress;
+      risk_matrix: RiskMatrix;
+    }>
+  >({});
+  const primedRef = useRef(false);
+
+  if (!primedRef.current) {
+    primedRef.current = true;
+    primeHaccpWriteCache({
+      planId: initial.plan.id,
+      organizationId,
+      planFields: {
+        current_step: initial.plan.currentStep,
+        status: initial.plan.status,
+        risk_matrix: initial.plan.riskMatrix,
+        checklist_progress: initial.plan.checklistProgress,
+      },
+      diagrams: initial.diagrams,
+      team: initial.team,
+      products: initial.products,
+      hazards: initial.hazards,
+      validation: initial.validation,
+      userId,
+      significanceThreshold: initial.plan.riskMatrix.significanceThreshold,
+    });
+    primeStepDataWrites(organizationId, initialStepData);
+  }
 
   const details: HaccpPlanDetails = {
     plan: { ...plan, checklistProgress: progress, currentStep },
@@ -150,13 +187,27 @@ export function HaccpPlanWizard({
 
   const ccps = significantRows.filter((row) => row.isCCP === true);
 
-  const persistStep = useDebouncedCallback((step: number) => {
-    void updatePlanFields(plan.id, { current_step: step, checklist_progress: progress });
+  const persistPlan = useDebouncedCallback(() => {
+    const patch = planPatchRef.current;
+    planPatchRef.current = {};
+    if (Object.keys(patch).length === 0) return;
+    void updatePlanFields(plan.id, patch);
   }, 800);
 
-  const persistChecklist = useDebouncedCallback((next: ChecklistProgress) => {
-    void updatePlanFields(plan.id, { checklist_progress: next });
-  }, 600);
+  const queuePlanPatch = useCallback(
+    (
+      patch: Partial<{
+        current_step: number;
+        status: HaccpPlanDetails["plan"]["status"];
+        checklist_progress: ChecklistProgress;
+        risk_matrix: RiskMatrix;
+      }>
+    ) => {
+      planPatchRef.current = { ...planPatchRef.current, ...patch };
+      persistPlan();
+    },
+    [persistPlan]
+  );
 
   const persistTeamMember = useDebouncedCallback((member: TeamMember) => {
     const index = team.findIndex((item) => item.id === member.id);
@@ -185,10 +236,12 @@ export function HaccpPlanWizard({
   }, 800);
 
   const persistStep7 = useDebouncedCallback((rows: HazardRow[], questions = ccpQuestions) => {
-    void saveStepData(organizationId, 7, { hazards: rows, questions });
+    const payload = { hazards: rows, questions };
+    writeStepLocalBackup(7, payload);
+    void saveStepData(organizationId, 7, payload);
     const ccpIds = rows.filter((row) => row.isCCP === true).map((row) => row.id);
-    rows.forEach((row) => {
-      void upsertCcpDecision({
+    void upsertCcpDecisions(
+      rows.map((row) => ({
         planId: plan.id,
         hazardId: row.id,
         q1: row.q1,
@@ -197,33 +250,93 @@ export function HaccpPlanWizard({
         q4: row.q4,
         result: ccpDecisionLabel(evaluateCcpTree(row.q1, row.q2, row.q3, row.q4)),
         pccNumber: row.isCCP ? ccpIds.indexOf(row.id) + 1 : null,
-      });
-    });
+      }))
+    );
   }, 1000);
 
   const persistStep8 = useDebouncedCallback((limits: typeof step8) => {
-    void saveStepData(organizationId, 8, { criticalLimits: limits });
+    const payload = { criticalLimits: limits };
+    writeStepLocalBackup(8, payload);
+    void saveStepData(organizationId, 8, payload);
   }, 1000);
   const persistStep9 = useDebouncedCallback((plans: typeof step9) => {
-    void saveStepData(organizationId, 9, { monitoringPlans: plans });
+    const payload = { monitoringPlans: plans };
+    writeStepLocalBackup(9, payload);
+    void saveStepData(organizationId, 9, payload);
   }, 1000);
   const persistStep10 = useDebouncedCallback((actions: typeof step10) => {
-    void saveStepData(organizationId, 10, { correctiveActions: actions });
+    const payload = { correctiveActions: actions };
+    writeStepLocalBackup(10, payload);
+    void saveStepData(organizationId, 10, payload);
   }, 1000);
   const persistStep11 = useDebouncedCallback((payload: typeof step11) => {
-    void saveStepData(organizationId, 11, { verificationPlan: payload });
+    const next = { verificationPlan: payload };
+    writeStepLocalBackup(11, next);
+    void saveStepData(organizationId, 11, next);
   }, 1000);
+
+  const persistFnsRef = useRef({
+    persistPlan,
+    persistTeamMember,
+    persistProduct,
+    persistDiagrams,
+    persistValidation,
+    persistHazard,
+    persistStep7,
+    persistStep8,
+    persistStep9,
+    persistStep10,
+    persistStep11,
+  });
+  persistFnsRef.current = {
+    persistPlan,
+    persistTeamMember,
+    persistProduct,
+    persistDiagrams,
+    persistValidation,
+    persistHazard,
+    persistStep7,
+    persistStep8,
+    persistStep9,
+    persistStep10,
+    persistStep11,
+  };
+
+  useEffect(() => {
+    const local = readStepLocalBackup();
+    if (local[7] && !(initialStepData[7]?.hazards.length)) {
+      setStep7(local[7].hazards);
+      setCcpQuestions(local[7].questions ?? {});
+    }
+    if (local[8] && !(initialStepData[8]?.criticalLimits.length)) {
+      setStep8(local[8].criticalLimits);
+    }
+    if (local[9] && !(initialStepData[9]?.monitoringPlans.length)) {
+      setStep9(local[9].monitoringPlans);
+    }
+    if (local[10] && !(initialStepData[10]?.correctiveActions.length)) {
+      setStep10(local[10].correctiveActions);
+    }
+    if (local[11] && !initialStepData[11]) {
+      setStep11(local[11].verificationPlan);
+    }
+  }, [initialStepData]);
 
   useEffect(() => {
     if (previousStep.current === 4 && currentStep !== 4) {
+      persistFnsRef.current.persistDiagrams.flush();
       void syncDiagrams(plan.id, diagramsRef.current);
     }
     previousStep.current = currentStep;
-    persistStep(currentStep);
+    queuePlanPatch({ current_step: currentStep });
+  }, [currentStep, plan.id, queuePlanPatch]);
 
+  useEffect(() => {
     if (plan.status === "draft" && currentStep > 1) {
-      setPlan((prev) => ({ ...prev, status: "in_progress" }));
-      void updatePlanFields(plan.id, { status: "in_progress" });
+      setPlan((prev) =>
+        prev.status === "draft" ? { ...prev, status: "in_progress" } : prev
+      );
+      queuePlanPatch({ status: "in_progress" });
     }
     if (
       plan.status !== "approved" &&
@@ -231,12 +344,36 @@ export function HaccpPlanWizard({
       countCompletedSteps(progress) === 12
     ) {
       setPlan((prev) => ({ ...prev, status: "completed" }));
-      void updatePlanFields(plan.id, { status: "completed" });
+      queuePlanPatch({ status: "completed" });
     }
-  }, [currentStep, persistStep, plan.id, plan.status, progress]);
+  }, [currentStep, plan.status, progress, queuePlanPatch]);
 
   useEffect(() => {
+    function flushPending() {
+      const fns = persistFnsRef.current;
+      fns.persistPlan.flush();
+      fns.persistTeamMember.flush();
+      fns.persistProduct.flush();
+      fns.persistDiagrams.flush();
+      fns.persistValidation.flush();
+      fns.persistHazard.flush();
+      fns.persistStep7.flush();
+      fns.persistStep8.flush();
+      fns.persistStep9.flush();
+      fns.persistStep10.flush();
+      fns.persistStep11.flush();
+    }
+
+    function onVisibility() {
+      if (document.visibilityState === "hidden") {
+        flushPending();
+      }
+    }
+
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      flushPending();
       void syncDiagrams(plan.id, diagramsRef.current);
     };
   }, [plan.id]);
@@ -261,7 +398,7 @@ export function HaccpPlanWizard({
             },
           };
           setProgress(next);
-          persistChecklist(next);
+          queuePlanPatch({ checklist_progress: next });
         }}
       />
       {error && <p className="text-xs text-danger">{error}</p>}
@@ -334,7 +471,7 @@ export function HaccpPlanWizard({
           activeId={activeProductId}
           onActiveChange={setActiveProductId}
           onAdd={async () => {
-            const product = await createProduct(plan.id);
+            const product = await createProduct(plan.id, "Producto", undefined, products.length);
             setProducts((prev) => [...prev, product]);
             setActiveProductId(product.id);
           }}
@@ -358,7 +495,7 @@ export function HaccpPlanWizard({
           activeId={activeProductId}
           onActiveChange={setActiveProductId}
           onAdd={async () => {
-            const product = await createProduct(plan.id);
+            const product = await createProduct(plan.id, "Producto", undefined, products.length);
             setProducts((prev) => [...prev, product]);
             setActiveProductId(product.id);
           }}
@@ -386,7 +523,13 @@ export function HaccpPlanWizard({
             persistDiagrams(next);
           }}
           onAdd={async () => {
-            const diagram = await createDiagram(plan.id, `Proceso ${diagrams.length + 1}`);
+            const diagram = await createDiagram(
+              plan.id,
+              `Proceso ${diagrams.length + 1}`,
+              undefined,
+              undefined,
+              diagrams.length
+            );
             setDiagrams((prev) => [...prev, diagram]);
             setActiveDiagramId(diagram.id);
           }}
@@ -395,7 +538,7 @@ export function HaccpPlanWizard({
             const next = diagrams.filter((item) => item.id !== id);
             setDiagrams(next);
             setActiveDiagramId(next[0]?.id ?? "");
-            void syncDiagrams(plan.id, next);
+            void syncDiagrams(plan.id, next, { removedIds: [id] });
           }}
         />
       )}
@@ -476,11 +619,13 @@ export function HaccpPlanWizard({
                 : (step7.find((saved) => saved.id === item.id) ?? item)
             );
             setStep7(next);
+            writeStepLocalBackup(7, { hazards: next, questions: ccpQuestions });
             persistStep7(next, ccpQuestions);
           }}
           questions={ccpQuestions}
           onQuestionsChange={(next) => {
             setCcpQuestions(next);
+            writeStepLocalBackup(7, { hazards: step7, questions: next });
             persistStep7(step7, next);
           }}
         />
@@ -492,6 +637,7 @@ export function HaccpPlanWizard({
           limits={step8}
           onChange={(limits) => {
             setStep8(limits);
+            writeStepLocalBackup(8, { criticalLimits: limits });
             persistStep8(limits);
           }}
         />
@@ -503,6 +649,7 @@ export function HaccpPlanWizard({
           plans={step9}
           onChange={(plans) => {
             setStep9(plans);
+            writeStepLocalBackup(9, { monitoringPlans: plans });
             persistStep9(plans);
           }}
         />
@@ -514,6 +661,7 @@ export function HaccpPlanWizard({
           actions={step10}
           onChange={(actions) => {
             setStep10(actions);
+            writeStepLocalBackup(10, { correctiveActions: actions });
             persistStep10(actions);
           }}
         />
@@ -525,11 +673,13 @@ export function HaccpPlanWizard({
           onChange={(activities) => {
             const next = { ...step11, activities };
             setStep11(next);
+            writeStepLocalBackup(11, { verificationPlan: next });
             persistStep11(next);
           }}
           onObservations={(generalObservations) => {
             const next = { ...step11, generalObservations };
             setStep11(next);
+            writeStepLocalBackup(11, { verificationPlan: next });
             persistStep11(next);
           }}
         />

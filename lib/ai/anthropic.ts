@@ -6,7 +6,6 @@
  *
  * Cost note (Claude claude-haiku-4-5, ~2026 pricing):
  *   NC analysis call  ≈ 400 input tokens + 300 output tokens ≈ $0.0004 / call
- *   Complaint classify ≈ 200 input + 100 output             ≈ $0.0002 / call
  * To disable AI features entirely: remove ANTHROPIC_API_KEY from .env.local.
  * The UI checks isAiAvailable() before showing any AI button.
  * ─────────────────────────────────────────────────────────────────────────────
@@ -34,9 +33,16 @@ export interface AiCallOptions {
   timeoutMs?: number;
 }
 
+export interface AiCallUsage {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  durationMs: number;
+}
+
 export interface AiCallResult {
   ok: true;
   text: string;
+  usage: AiCallUsage;
 }
 
 export interface AiCallError {
@@ -65,6 +71,7 @@ export async function callClaude(
       : opts.userMessage;
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const started = Date.now();
 
   try {
     const result = await Promise.race([
@@ -81,7 +88,15 @@ export async function callClaude(
 
     const text =
       result.content[0]?.type === "text" ? result.content[0].text : "";
-    return { ok: true, text };
+    return {
+      ok: true,
+      text,
+      usage: {
+        inputTokens: result.usage?.input_tokens ?? null,
+        outputTokens: result.usage?.output_tokens ?? null,
+        durationMs: Date.now() - started,
+      },
+    };
   } catch (err) {
     return {
       ok: false,
@@ -108,6 +123,7 @@ export async function callClaudeVision(
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const timeoutMs = opts.timeoutMs ?? 30_000;
+  const started = Date.now();
 
   try {
     const result = await Promise.race([
@@ -139,7 +155,15 @@ export async function callClaudeVision(
 
     const text =
       result.content[0]?.type === "text" ? result.content[0].text : "";
-    return { ok: true, text };
+    return {
+      ok: true,
+      text,
+      usage: {
+        inputTokens: result.usage?.input_tokens ?? null,
+        outputTokens: result.usage?.output_tokens ?? null,
+        durationMs: Date.now() - started,
+      },
+    };
   } catch (err) {
     return {
       ok: false,

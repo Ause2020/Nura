@@ -1,7 +1,7 @@
 import { STEP_CHECKLISTS, stepChecklistStats } from "@/lib/haccp-plan/checklists";
 import { STEP_META } from "@/lib/haccp-plan/constants";
 import type { ChecklistProgress, HazardRow } from "@/lib/haccp-plan/types";
-import { isDueWithinHours, isPastDue } from "@/lib/capa/utils";
+import { isPastDue } from "@/lib/capa/utils";
 import { daysBetween, periodDateInSantiago } from "@/lib/ai-insights/period";
 import type { InsightDbClient } from "@/lib/ai-insights/db";
 import type {
@@ -13,35 +13,12 @@ import type {
 const HACCP_TRAINING_VALIDITY_DAYS = 365;
 const STUCK_NC_DAYS = 14;
 
-function emptyWindow(): WindowStats {
-  return { total: 0, conforming: 0, nonConforming: 0, compliancePct: 100 };
-}
-
-function windowStats(
-  rows: { conforms: boolean | null }[]
-): WindowStats {
-  const total = rows.length;
-  const conforming = rows.filter((r) => r.conforms === true).length;
-  const nonConforming = rows.filter((r) => r.conforms === false).length;
+function windowFromCounts(total: number, conforming: number, nonConforming: number): WindowStats {
   return {
     total,
     conforming,
     nonConforming,
     compliancePct: total > 0 ? Math.round((conforming / total) * 100) : 100,
-  };
-}
-
-function submissionWindow(
-  rows: { status: string; has_deviation: boolean }[]
-) {
-  const total = rows.length;
-  const deviations = rows.filter((r) => r.has_deviation || r.status === "deviation").length;
-  const ok = rows.filter((r) => r.status === "ok" && !r.has_deviation).length;
-  return {
-    total,
-    ok,
-    deviations,
-    compliancePct: total > 0 ? Math.round((ok / total) * 100) : 100,
   };
 }
 
@@ -66,6 +43,16 @@ function countBy(items: string[]): Record<string, number> {
   return acc;
 }
 
+async function countExact(
+  client: InsightDbClient,
+  table: string,
+  apply: (query: ReturnType<InsightDbClient["from"]>) => Promise<{ count: number | null }>
+): Promise<number> {
+  const query = client.from(table).select("id", { count: "exact", head: true });
+  const { count } = await apply(query);
+  return count ?? 0;
+}
+
 export async function collectQualitySnapshot(
   organizationId: string,
   client: InsightDbClient
@@ -77,17 +64,44 @@ export async function collectQualitySnapshot(
   d14.setDate(now.getDate() - 14);
   const d30 = new Date(now);
   d30.setDate(now.getDate() - 30);
+  const stuckBefore = new Date(now);
+  stuckBefore.setDate(now.getDate() - STUCK_NC_DAYS);
 
   const iso7 = d7.toISOString();
   const iso14 = d14.toISOString();
   const iso30 = d30.toISOString();
+  const todayIso = now.toISOString().slice(0, 10);
+  const soonIso = new Date(now.getTime() + 48 * 3600 * 1000).toISOString().slice(0, 10);
 
   const [
     planRes,
-    ncsRes,
-    pccRes,
-    submissionsRes,
     stepDataRes,
+    openNcsRes,
+    overdueNcsRes,
+    stuckNcsRes,
+    openCount,
+    overdueCount,
+    criticalCount,
+    dueSoonCount,
+    closed30d,
+    pcc7Total,
+    pcc7Ok,
+    pcc7Bad,
+    pccPrevTotal,
+    pccPrevOk,
+    pccPrevBad,
+    pcc30Total,
+    pcc30Ok,
+    pcc30Bad,
+    pccIdsRes,
+    pccDevRes,
+    sub7Total,
+    sub7Ok,
+    sub7Dev,
+    subPrevTotal,
+    subPrevOk,
+    subPrevDev,
+    subDevRes,
   ] = await Promise.all([
     client
       .from("haccp_plans")
@@ -97,32 +111,168 @@ export async function collectQualitySnapshot(
       .limit(1)
       .maybeSingle(),
     client
-      .from("nonconformities")
-      .select(
-        "id, nc_number, status, severity, origin, capa_stage, due_date, detected_at, created_at, closed_at"
-      )
-      .eq("organization_id", organizationId)
-      .order("detected_at", { ascending: false })
-      .limit(200),
-    client
-      .from("haccp_monitoring_records")
-      .select("id, pcc_reference_id, recorded_at, parameter, measured_value, conforms")
-      .eq("organization_id", organizationId)
-      .gte("recorded_at", iso30)
-      .order("recorded_at", { ascending: false })
-      .limit(400),
-    client
-      .from("production_form_submissions")
-      .select("id, submitted_at, status, has_deviation")
-      .eq("organization_id", organizationId)
-      .gte("submitted_at", iso14)
-      .order("submitted_at", { ascending: false })
-      .limit(400),
-    client
       .from("haccp_step_data")
       .select("step_id, data")
       .eq("organization_id", organizationId)
       .in("step_id", [7, 8, 9]),
+    client
+      .from("nonconformities")
+      .select("status, severity, origin, capa_stage, due_date, detected_at, created_at")
+      .eq("organization_id", organizationId)
+      .neq("status", "closed")
+      .limit(150),
+    client
+      .from("nonconformities")
+      .select("id, nc_number, due_date, severity, status")
+      .eq("organization_id", organizationId)
+      .neq("status", "closed")
+      .or(`status.eq.overdue,due_date.lt.${todayIso}`)
+      .limit(8),
+    client
+      .from("nonconformities")
+      .select("id, nc_number, capa_stage, detected_at, created_at, severity")
+      .eq("organization_id", organizationId)
+      .neq("status", "closed")
+      .lte("detected_at", stuckBefore.toISOString())
+      .order("detected_at", { ascending: true })
+      .limit(6),
+    countExact(client, "nonconformities", (q) =>
+      q.eq("organization_id", organizationId).neq("status", "closed")
+    ),
+    countExact(client, "nonconformities", (q) =>
+      q
+        .eq("organization_id", organizationId)
+        .neq("status", "closed")
+        .or(`status.eq.overdue,due_date.lt.${todayIso}`)
+    ),
+    countExact(client, "nonconformities", (q) =>
+      q
+        .eq("organization_id", organizationId)
+        .neq("status", "closed")
+        .eq("severity", "critical")
+    ),
+    countExact(client, "nonconformities", (q) =>
+      q
+        .eq("organization_id", organizationId)
+        .neq("status", "closed")
+        .gte("due_date", todayIso)
+        .lte("due_date", soonIso)
+    ),
+    countExact(client, "nonconformities", (q) =>
+      q
+        .eq("organization_id", organizationId)
+        .eq("status", "closed")
+        .gte("closed_at", iso30)
+    ),
+    countExact(client, "haccp_monitoring_records", (q) =>
+      q.eq("organization_id", organizationId).gte("recorded_at", iso7)
+    ),
+    countExact(client, "haccp_monitoring_records", (q) =>
+      q
+        .eq("organization_id", organizationId)
+        .gte("recorded_at", iso7)
+        .eq("conforms", true)
+    ),
+    countExact(client, "haccp_monitoring_records", (q) =>
+      q
+        .eq("organization_id", organizationId)
+        .gte("recorded_at", iso7)
+        .eq("conforms", false)
+    ),
+    countExact(client, "haccp_monitoring_records", (q) =>
+      q
+        .eq("organization_id", organizationId)
+        .gte("recorded_at", iso14)
+        .lt("recorded_at", iso7)
+    ),
+    countExact(client, "haccp_monitoring_records", (q) =>
+      q
+        .eq("organization_id", organizationId)
+        .gte("recorded_at", iso14)
+        .lt("recorded_at", iso7)
+        .eq("conforms", true)
+    ),
+    countExact(client, "haccp_monitoring_records", (q) =>
+      q
+        .eq("organization_id", organizationId)
+        .gte("recorded_at", iso14)
+        .lt("recorded_at", iso7)
+        .eq("conforms", false)
+    ),
+    countExact(client, "haccp_monitoring_records", (q) =>
+      q.eq("organization_id", organizationId).gte("recorded_at", iso30)
+    ),
+    countExact(client, "haccp_monitoring_records", (q) =>
+      q
+        .eq("organization_id", organizationId)
+        .gte("recorded_at", iso30)
+        .eq("conforms", true)
+    ),
+    countExact(client, "haccp_monitoring_records", (q) =>
+      q
+        .eq("organization_id", organizationId)
+        .gte("recorded_at", iso30)
+        .eq("conforms", false)
+    ),
+    client
+      .from("haccp_monitoring_records")
+      .select("pcc_reference_id")
+      .eq("organization_id", organizationId)
+      .gte("recorded_at", iso7)
+      .limit(80),
+    client
+      .from("haccp_monitoring_records")
+      .select("recorded_at, parameter, measured_value")
+      .eq("organization_id", organizationId)
+      .eq("conforms", false)
+      .gte("recorded_at", iso7)
+      .order("recorded_at", { ascending: false })
+      .limit(5),
+    countExact(client, "production_form_submissions", (q) =>
+      q.eq("organization_id", organizationId).gte("submitted_at", iso7)
+    ),
+    countExact(client, "production_form_submissions", (q) =>
+      q
+        .eq("organization_id", organizationId)
+        .gte("submitted_at", iso7)
+        .eq("status", "ok")
+        .eq("has_deviation", false)
+    ),
+    countExact(client, "production_form_submissions", (q) =>
+      q
+        .eq("organization_id", organizationId)
+        .gte("submitted_at", iso7)
+        .or("has_deviation.eq.true,status.eq.deviation")
+    ),
+    countExact(client, "production_form_submissions", (q) =>
+      q
+        .eq("organization_id", organizationId)
+        .gte("submitted_at", iso14)
+        .lt("submitted_at", iso7)
+    ),
+    countExact(client, "production_form_submissions", (q) =>
+      q
+        .eq("organization_id", organizationId)
+        .gte("submitted_at", iso14)
+        .lt("submitted_at", iso7)
+        .eq("status", "ok")
+        .eq("has_deviation", false)
+    ),
+    countExact(client, "production_form_submissions", (q) =>
+      q
+        .eq("organization_id", organizationId)
+        .gte("submitted_at", iso14)
+        .lt("submitted_at", iso7)
+        .or("has_deviation.eq.true,status.eq.deviation")
+    ),
+    client
+      .from("production_form_submissions")
+      .select("submitted_at")
+      .eq("organization_id", organizationId)
+      .eq("has_deviation", true)
+      .gte("submitted_at", iso7)
+      .order("submitted_at", { ascending: false })
+      .limit(5),
   ]);
 
   const plan = (planRes.data ?? null) as {
@@ -145,10 +295,13 @@ export async function collectQualitySnapshot(
         .from("haccp_teams")
         .select("name, role, training_date, training_evidence")
         .eq("plan_id", plan.id),
-      client.from("haccp_plan_products").select("id").eq("plan_id", plan.id),
+      client
+        .from("haccp_plan_products")
+        .select("id", { count: "exact", head: true })
+        .eq("plan_id", plan.id),
       client
         .from("haccp_plan_hazards")
-        .select("id, severity, probability")
+        .select("severity, probability")
         .eq("plan_id", plan.id),
       client
         .from("haccp_validations")
@@ -162,20 +315,22 @@ export async function collectQualitySnapshot(
       role: string;
       training_date: string | null;
       training_evidence: unknown;
-    }[]).map((member) => {
-      const trainingDate = member.training_date;
-      const age = trainingDate ? daysBetween(trainingDate, now) : null;
-      return {
-        name: member.name || "Sin nombre",
-        role: member.role || "",
-        trainingDate,
-        missingTraining: !trainingDate,
-        trainingExpired: age !== null && age > HACCP_TRAINING_VALIDITY_DAYS,
-        missingEvidence: !member.training_evidence,
-      };
-    });
+    }[])
+      .map((member) => {
+        const trainingDate = member.training_date;
+        const age = trainingDate ? daysBetween(trainingDate, now) : null;
+        return {
+          name: member.name || "Sin nombre",
+          role: member.role || "",
+          trainingDate,
+          missingTraining: !trainingDate,
+          trainingExpired: age !== null && age > HACCP_TRAINING_VALIDITY_DAYS,
+          missingEvidence: !member.training_evidence,
+        };
+      })
+      .filter((member) => member.missingTraining || member.trainingExpired);
 
-    productsCount = (productsRes.data ?? []).length;
+    productsCount = productsRes.count ?? 0;
     const hazards = (hazardsRes.data ?? []) as {
       severity?: number;
       probability?: number;
@@ -230,40 +385,101 @@ export async function collectQualitySnapshot(
   const limitsDefined = step8?.criticalLimits?.length ?? 0;
   const monitoringPlansDefined = step9?.monitoringPlans?.length ?? 0;
 
-  const pccRows = (pccRes.data ?? []) as {
-    pcc_reference_id: string;
-    recorded_at: string;
-    parameter: string;
-    measured_value: string;
-    conforms: boolean | null;
-  }[];
-
-  const pcc7 = pccRows.filter((r) => new Date(r.recorded_at) >= d7);
-  const pccPrev7 = pccRows.filter(
-    (r) => new Date(r.recorded_at) >= d14 && new Date(r.recorded_at) < d7
+  const recordedPccIds = new Set(
+    ((pccIdsRes.data ?? []) as { pcc_reference_id: string }[]).map((r) => r.pcc_reference_id)
   );
-
-  const pccRecords7d = windowStats(pcc7);
-  const pccRecordsPrev7d = windowStats(pccPrev7);
-  const pccRecords30d = windowStats(pccRows);
-
-  const recordedPccIds = new Set(pcc7.map((r) => r.pcc_reference_id));
   const pccsWithoutRecentRecords = ccpHazards
     .filter((h) => !recordedPccIds.has(h.id))
     .map((h) => h.processStep || h.description || `PCC ${h.id.slice(0, 6)}`)
     .slice(0, 8);
 
-  const submissions = (submissionsRes.data ?? []) as {
-    submitted_at: string;
+  const pccRecords7d = windowFromCounts(pcc7Total, pcc7Ok, pcc7Bad);
+  const pccRecordsPrev7d = windowFromCounts(pccPrevTotal, pccPrevOk, pccPrevBad);
+  const pccRecords30d = windowFromCounts(pcc30Total, pcc30Ok, pcc30Bad);
+
+  const submissions7d = {
+    total: sub7Total,
+    ok: sub7Ok,
+    deviations: sub7Dev,
+    compliancePct: sub7Total > 0 ? Math.round((sub7Ok / sub7Total) * 100) : 100,
+  };
+  const submissionsPrev7d = {
+    total: subPrevTotal,
+    ok: subPrevOk,
+    deviations: subPrevDev,
+    compliancePct: subPrevTotal > 0 ? Math.round((subPrevOk / subPrevTotal) * 100) : 100,
+  };
+
+  const recentDeviations = [
+    ...((pccDevRes.data ?? []) as {
+      recorded_at: string;
+      parameter: string;
+      measured_value: string;
+    }[]).map((r) => ({
+      date: r.recorded_at,
+      parameter: r.parameter || "PCC",
+      value: r.measured_value || "",
+      source: "pcc" as const,
+    })),
+    ...((subDevRes.data ?? []) as { submitted_at: string }[]).map((s) => ({
+      date: s.submitted_at,
+      parameter: "Formulario de producción",
+      value: "desviación",
+      source: "form" as const,
+    })),
+  ]
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 8);
+
+  const openSample = (openNcsRes.data ?? []) as {
     status: string;
-    has_deviation: boolean;
+    severity: string;
+    origin: string;
+    capa_stage: string | null;
+    due_date: string | null;
+    detected_at: string;
+    created_at: string;
   }[];
-  const sub7 = submissions.filter((s) => new Date(s.submitted_at) >= d7);
-  const subPrev7 = submissions.filter(
-    (s) => new Date(s.submitted_at) >= d14 && new Date(s.submitted_at) < d7
-  );
-  const submissions7d = submissionWindow(sub7);
-  const submissionsPrev7d = submissionWindow(subPrev7);
+
+  const overdueItems = ((overdueNcsRes.data ?? []) as {
+    id: string;
+    nc_number: string;
+    due_date: string | null;
+    severity: string;
+    status: string;
+  }[])
+    .filter((nc) => isPastDue(nc.due_date, nc.status as never) || nc.status === "overdue")
+    .map((nc) => ({
+      id: nc.id,
+      number: nc.nc_number,
+      dueDate: nc.due_date ?? "",
+      severity: nc.severity,
+    }));
+
+  const stuck = ((stuckNcsRes.data ?? []) as {
+    id: string;
+    nc_number: string;
+    capa_stage: string | null;
+    detected_at: string;
+    created_at: string;
+    severity: string;
+  }[]).map((nc) => ({
+    id: nc.id,
+    number: nc.nc_number,
+    stage: nc.capa_stage ?? "identification",
+    daysOpen: daysBetween(nc.detected_at || nc.created_at, now),
+    severity: nc.severity,
+  }));
+
+  const avgOpenAgeDays =
+    openSample.length > 0
+      ? Math.round(
+          openSample.reduce(
+            (sum, nc) => sum + daysBetween(nc.detected_at || nc.created_at, now),
+            0
+          ) / openSample.length
+        )
+      : 0;
 
   const combinedCurrent = {
     total: pccRecords7d.total + submissions7d.total,
@@ -287,75 +503,6 @@ export async function collectQualitySnapshot(
           )
         : 100,
   };
-
-  const recentDeviations = [
-    ...pcc7
-      .filter((r) => r.conforms === false)
-      .map((r) => ({
-        date: r.recorded_at,
-        parameter: r.parameter || "PCC",
-        value: r.measured_value || "",
-        source: "pcc" as const,
-      })),
-    ...sub7
-      .filter((s) => s.has_deviation || s.status === "deviation")
-      .map((s) => ({
-        date: s.submitted_at,
-        parameter: "Formulario de producción",
-        value: "desviación",
-        source: "form" as const,
-      })),
-  ]
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 8);
-
-  const ncs = (ncsRes.data ?? []) as {
-    id: string;
-    nc_number: string;
-    status: string;
-    severity: string;
-    origin: string;
-    capa_stage: string | null;
-    due_date: string | null;
-    detected_at: string;
-    created_at: string;
-    closed_at: string | null;
-  }[];
-
-  const openNcs = ncs.filter((nc) => nc.status !== "closed");
-  const overdueItems = openNcs
-    .filter((nc) => isPastDue(nc.due_date, nc.status as never) || nc.status === "overdue")
-    .map((nc) => ({
-      id: nc.id,
-      number: nc.nc_number,
-      dueDate: nc.due_date ?? "",
-      severity: nc.severity,
-    }));
-
-  const stuck = openNcs
-    .map((nc) => {
-      const daysOpen = daysBetween(nc.detected_at || nc.created_at, now);
-      return {
-        id: nc.id,
-        number: nc.nc_number,
-        stage: nc.capa_stage ?? "identification",
-        daysOpen,
-        severity: nc.severity,
-      };
-    })
-    .filter((nc) => nc.daysOpen >= STUCK_NC_DAYS)
-    .sort((a, b) => b.daysOpen - a.daysOpen)
-    .slice(0, 6);
-
-  const avgOpenAgeDays =
-    openNcs.length > 0
-      ? Math.round(
-          openNcs.reduce(
-            (sum, nc) => sum + daysBetween(nc.detected_at || nc.created_at, now),
-            0
-          ) / openNcs.length
-        )
-      : 0;
 
   return {
     generatedAt: now.toISOString(),
@@ -387,27 +534,17 @@ export async function collectQualitySnapshot(
       recentDeviations,
     },
     ncs: {
-      open: openNcs.length,
-      overdue: overdueItems.length,
-      criticalOpen: openNcs.filter((nc) => nc.severity === "critical").length,
-      dueSoon: openNcs.filter(
-        (nc) =>
-          !isPastDue(nc.due_date, nc.status as never) &&
-          isDueWithinHours(nc.due_date, 48)
-      ).length,
-      closed30d: ncs.filter(
-        (nc) => nc.status === "closed" && nc.closed_at && new Date(nc.closed_at) >= d30
-      ).length,
+      open: openCount,
+      overdue: overdueCount,
+      criticalOpen: criticalCount,
+      dueSoon: dueSoonCount,
+      closed30d,
       avgOpenAgeDays,
-      byStatus: countBy(ncs.map((nc) => nc.status)),
-      byStage: countBy(openNcs.map((nc) => nc.capa_stage ?? "identification")),
-      byOrigin: countBy(ncs.filter((nc) => nc.status !== "closed").map((nc) => nc.origin)),
+      byStatus: countBy(openSample.map((nc) => nc.status)),
+      byStage: countBy(openSample.map((nc) => nc.capa_stage ?? "identification")),
+      byOrigin: countBy(openSample.map((nc) => nc.origin)),
       stuck,
       overdueItems,
-    },
-    training: {
-      expiredCompletions: [],
-      expiringSoon: [],
     },
   };
 }

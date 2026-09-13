@@ -1,12 +1,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const ORG_TABLES = [
-  "haccp_products",
-  "haccp_process_steps",
-  "haccp_hazards",
-  "haccp_ccps",
-  "haccp_plan_versions",
-  "haccp_plan_version_log",
+  "haccp_plans",
+  "haccp_step_data",
+  "haccp_monitoring_records",
   "audits",
   "audit_checklist_items",
   "audit_findings",
@@ -29,6 +26,15 @@ const ORG_TABLES = [
   "production_form_submissions",
   "production_form_submission_values",
   "capa_stage_log",
+] as const;
+
+const HACCP_PLAN_CHILD_TABLES = [
+  "haccp_teams",
+  "haccp_plan_products",
+  "haccp_diagrams",
+  "haccp_validations",
+  "haccp_plan_hazards",
+  "haccp_ccp_decisions",
 ] as const;
 
 export async function exportOrganizationData(organizationId: string) {
@@ -59,6 +65,22 @@ export async function exportOrganizationData(organizationId: string) {
       .from(table)
       .select("*")
       .eq("organization_id", organizationId);
+    tables[table] = (data ?? []) as unknown[];
+  }
+
+  const planIds = (tables.haccp_plans as { id: string }[])
+    .map((plan) => plan.id)
+    .filter(Boolean);
+
+  for (const table of HACCP_PLAN_CHILD_TABLES) {
+    if (planIds.length === 0) {
+      tables[table] = [];
+      continue;
+    }
+    const { data } = await admin
+      .from(table)
+      .select("*")
+      .in("plan_id", planIds);
     tables[table] = (data ?? []) as unknown[];
   }
 

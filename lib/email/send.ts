@@ -55,3 +55,21 @@ export async function getUserEmail(
   if (error || !data.user?.email) return null;
   return data.user.email;
 }
+
+export async function getUserEmails(
+  adminClient: NonNullable<ReturnType<typeof import("@/lib/supabase/admin").createAdminClient>>,
+  userIds: string[]
+): Promise<Map<string, string>> {
+  const unique = [...new Set(userIds)];
+  const pairs = await Promise.all(
+    unique.map(async (id) => {
+      const email = await getUserEmail(adminClient, id);
+      return [id, email] as const;
+    })
+  );
+  const map = new Map<string, string>();
+  for (const [id, email] of pairs) {
+    if (email) map.set(id, email);
+  }
+  return map;
+}

@@ -1,4 +1,3 @@
-import { findLinkedCcpForSubmission } from "@/lib/haccp/ccp-linking";
 import { createNonconformityDraft } from "@/lib/integrations/nonconformity-draft";
 import type { FieldValuePayload, TemplateSnapshot } from "@/lib/production-records/utils";
 import type {
@@ -73,20 +72,6 @@ export async function submitProductionRecord(
 
   const submissionId = (submissionData as { id: string }).id;
 
-  const linkedCcpId = await findLinkedCcpForSubmission(
-    supabase,
-    input.organizationId,
-    input.templateId,
-    input.values.map((v) => v.field_id)
-  );
-
-  if (linkedCcpId) {
-    await supabase
-      .from("production_form_submissions")
-      .update({ haccp_ccp_id: linkedCcpId })
-      .eq("id", submissionId);
-  }
-
   if (input.values.length > 0) {
     const { error: valuesError } = await supabase
       .from("production_form_submission_values")
@@ -145,7 +130,6 @@ export async function submitProductionRecord(
       lotNumber: input.lotNumber,
       area: input.area ?? input.templateSnapshot.area,
       productAffected: input.templateSnapshot.name,
-      haccpCcpId: linkedCcpId,
     });
 
     if (nc) {

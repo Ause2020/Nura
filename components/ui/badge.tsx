@@ -1,6 +1,5 @@
 import { cn } from "@/lib/utils";
-import type { LucideIcon } from "lucide-react";
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 type BadgeVariant = "success" | "warning" | "danger" | "neutral";
 

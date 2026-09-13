@@ -10,7 +10,7 @@ import {
   ROLE_DESCRIPTIONS,
   ROLE_LABELS,
 } from "@/lib/team/constants";
-import type { Invitation, UserRole } from "@/types/database";
+import type { Invitation } from "@/types/database";
 
 interface InviteUserModalProps {
   open: boolean;

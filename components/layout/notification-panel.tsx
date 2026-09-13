@@ -5,12 +5,8 @@ import {
   AlertTriangle,
   Bell,
   BrainCircuit,
-  ClipboardList,
   FileText,
   Search,
-  MessageSquare,
-  Truck,
-  GraduationCap,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,17 +19,9 @@ import type { NotificationType } from "@/lib/notifications/constants";
 const TYPE_ICONS: Record<NotificationType, typeof Bell> = {
   capa_due: AlertTriangle,
   capa_overdue: AlertTriangle,
-  prp_missed: ClipboardList,
   audit_upcoming: Search,
   nc_new: AlertTriangle,
-  supplier_doc_expiring: Truck,
-  supplier_eval_overdue: Truck,
-  complaint_critical: MessageSquare,
   document_read_required: FileText,
-  training_due: GraduationCap,
-  training_overdue: GraduationCap,
-  complaint_sla_due: MessageSquare,
-  complaint_sla_overdue: MessageSquare,
   daily_insight: BrainCircuit,
   system: Bell,
 };

@@ -1,7 +1,6 @@
 import {
   Building2,
   Bell,
-  Download,
   KeyRound,
   Users,
   type LucideIcon,

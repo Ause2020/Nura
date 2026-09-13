@@ -6,7 +6,7 @@ import {
   EVIDENCE_EXTENSIONS,
   EVIDENCE_MAX_BYTES,
 } from "@/lib/haccp-plan/constants";
-import type { EvidenceFile, TeamMember } from "@/lib/haccp-plan/types";
+import type { TeamMember } from "@/lib/haccp-plan/types";
 import { PrivateFileLink } from "@/components/storage/private-file";
 
 export function Step1Team({

@@ -22,6 +22,13 @@ import type {
   Product,
   TeamMember,
 } from "@/lib/haccp-plan/types";
+import {
+  fingerprint,
+  persistableDiagrams,
+  rememberWrite,
+  shouldSkipWrite,
+  stripUpdatedAt,
+} from "@/lib/haccp-plan/write-guard";
 
 function db(client?: HaccpDbClient) {
   return client ?? createClient();
@@ -47,6 +54,8 @@ export async function getOrCreateActivePlan(
 ): Promise<HaccpPlanDetails> {
   const supabase = db(client);
 
+  // Plan SELECT/INSERT must finish before loadPlanDetails: children
+  // filter by plan_id, and empty diagrams/products are seeded sequentially.
   const { data: existing } = await supabase
     .from("haccp_plans")
     .select("*")
@@ -97,12 +106,12 @@ async function loadPlanDetails(
   );
 
   if (diagrams.length === 0) {
-    const seeded = await createDiagram(plan.id, "Proceso Principal", SEED_NODES, supabase);
+    const seeded = await createDiagram(plan.id, "Proceso Principal", SEED_NODES, supabase, 0);
     diagrams = [seeded];
   }
 
   if ((productsRes.data ?? []).length === 0) {
-    await createProduct(plan.id, "Producto", supabase);
+    await createProduct(plan.id, "Producto", supabase, 0);
     const { data } = await supabase
       .from("haccp_plan_products")
       .select("*")
@@ -134,6 +143,64 @@ async function loadPlanDetails(
   };
 }
 
+const lastPlanFields = new Map<string, Record<string, unknown>>();
+
+export function primePlanFields(
+  planId: string,
+  fields: Partial<{
+    current_step: number;
+    status: HaccpPlan["status"];
+    risk_matrix: HaccpPlan["riskMatrix"];
+    checklist_progress: HaccpPlan["checklistProgress"];
+  }>
+) {
+  lastPlanFields.set(planId, { ...fields });
+}
+
+export function primeHaccpWriteCache(input: {
+  planId: string;
+  organizationId: string;
+  planFields: Partial<{
+    current_step: number;
+    status: HaccpPlan["status"];
+    risk_matrix: HaccpPlan["riskMatrix"];
+    checklist_progress: HaccpPlan["checklistProgress"];
+  }>;
+  diagrams: ProcessDiagram[];
+  team: TeamMember[];
+  products: Product[];
+  hazards: Hazard[];
+  validation: PlanValidation;
+  userId: string;
+  significanceThreshold: number;
+}) {
+  primePlanFields(input.planId, input.planFields);
+  rememberWrite(`diagrams:${input.planId}`, persistableDiagrams(input.diagrams));
+  rememberWrite(`validation:${input.planId}`, {
+    files: input.validation.files,
+    observations: input.validation.observations,
+    userId: input.userId,
+  });
+  input.team.forEach((member, index) => {
+    rememberWrite(
+      `team:${member.id}`,
+      stripUpdatedAt(teamToRow(member, input.planId, index))
+    );
+  });
+  input.products.forEach((product, index) => {
+    rememberWrite(
+      `product:${product.id}`,
+      stripUpdatedAt(productToRow(product, input.planId, index))
+    );
+  });
+  input.hazards.forEach((hazard) => {
+    rememberWrite(
+      `hazard:${hazard.id}`,
+      stripUpdatedAt(hazardToRow(hazard, input.planId, input.significanceThreshold))
+    );
+  });
+}
+
 export async function updatePlanFields(
   planId: string,
   patch: Partial<{
@@ -143,11 +210,21 @@ export async function updatePlanFields(
     checklist_progress: HaccpPlan["checklistProgress"];
   }>
 ) {
+  const prev = lastPlanFields.get(planId) ?? {};
+  const meaningful: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (fingerprint(prev[key]) !== fingerprint(value)) {
+      meaningful[key] = value;
+    }
+  }
+  if (Object.keys(meaningful).length === 0) return;
+
   const { error } = await db()
     .from("haccp_plans")
-    .update({ ...patch, updated_at: new Date().toISOString() })
+    .update({ ...meaningful, updated_at: new Date().toISOString() })
     .eq("id", planId);
   if (error) throw new Error(error.message);
+  lastPlanFields.set(planId, { ...prev, ...meaningful });
 }
 
 export async function createTeamMember(planId: string, orderIndex: number) {
@@ -172,11 +249,16 @@ export async function updateTeamMember(
   planId: string,
   orderIndex: number
 ) {
+  const row = teamToRow(member, planId, orderIndex);
+  const key = `team:${member.id}`;
+  const payload = stripUpdatedAt(row);
+  if (shouldSkipWrite(key, payload)) return;
   const { error } = await db()
     .from("haccp_teams")
-    .update(teamToRow(member, planId, orderIndex))
+    .update(row)
     .eq("id", member.id);
   if (error) throw new Error(error.message);
+  rememberWrite(key, payload);
 }
 
 export async function deleteTeamMember(id: string) {
@@ -187,18 +269,21 @@ export async function deleteTeamMember(id: string) {
 export async function createProduct(
   planId: string,
   name = "Producto",
-  client?: HaccpDbClient
+  client?: HaccpDbClient,
+  orderIndex?: number
 ) {
   const supabase = db(client);
-  const { data: existing } = await supabase
-    .from("haccp_plan_products")
-    .select("order_index")
-    .eq("plan_id", planId)
-    .order("order_index", { ascending: false })
-    .limit(1);
-
-  const orderIndex =
-    ((existing?.[0] as { order_index?: number } | undefined)?.order_index ?? -1) + 1;
+  let nextIndex = orderIndex;
+  if (nextIndex === undefined) {
+    const { data: existing } = await supabase
+      .from("haccp_plan_products")
+      .select("order_index")
+      .eq("plan_id", planId)
+      .order("order_index", { ascending: false })
+      .limit(1);
+    nextIndex =
+      ((existing?.[0] as { order_index?: number } | undefined)?.order_index ?? -1) + 1;
+  }
 
   const { data, error } = await supabase
     .from("haccp_plan_products")
@@ -206,7 +291,7 @@ export async function createProduct(
       plan_id: planId,
       name,
       specifications: INITIAL_PRODUCT_SPECS,
-      order_index: orderIndex,
+      order_index: nextIndex,
     })
     .select("*")
     .single();
@@ -220,11 +305,16 @@ export async function updateProduct(
   planId: string,
   orderIndex: number
 ) {
+  const row = productToRow(product, planId, orderIndex);
+  const key = `product:${product.id}`;
+  const payload = stripUpdatedAt(row);
+  if (shouldSkipWrite(key, payload)) return;
   const { error } = await db()
     .from("haccp_plan_products")
-    .update(productToRow(product, planId, orderIndex))
+    .update(row)
     .eq("id", product.id);
   if (error) throw new Error(error.message);
+  rememberWrite(key, payload);
 }
 
 export async function deleteProduct(id: string) {
@@ -236,18 +326,21 @@ export async function createDiagram(
   planId: string,
   name: string,
   nodes = SEED_NODES,
-  client?: HaccpDbClient
+  client?: HaccpDbClient,
+  orderIndex?: number
 ): Promise<ProcessDiagram> {
   const supabase = db(client);
-  const { data: existing } = await supabase
-    .from("haccp_diagrams")
-    .select("order_index")
-    .eq("plan_id", planId)
-    .order("order_index", { ascending: false })
-    .limit(1);
-
-  const orderIndex =
-    ((existing?.[0] as { order_index?: number } | undefined)?.order_index ?? -1) + 1;
+  let nextIndex = orderIndex;
+  if (nextIndex === undefined) {
+    const { data: existing } = await supabase
+      .from("haccp_diagrams")
+      .select("order_index")
+      .eq("plan_id", planId)
+      .order("order_index", { ascending: false })
+      .limit(1);
+    nextIndex =
+      ((existing?.[0] as { order_index?: number } | undefined)?.order_index ?? -1) + 1;
+  }
 
   const { data, error } = await supabase
     .from("haccp_diagrams")
@@ -259,7 +352,7 @@ export async function createDiagram(
       zoom: 1,
       pan_x: 0,
       pan_y: 0,
-      order_index: orderIndex,
+      order_index: nextIndex,
     })
     .select("*")
     .single();
@@ -270,33 +363,34 @@ export async function createDiagram(
 
 export async function syncDiagrams(
   planId: string,
-  diagrams: ProcessDiagram[]
+  diagrams: ProcessDiagram[],
+  options?: { removedIds?: string[] }
 ) {
+  const key = `diagrams:${planId}`;
+  const snapshot = persistableDiagrams(diagrams);
+  const removedIds = options?.removedIds ?? [];
+  if (shouldSkipWrite(key, snapshot) && removedIds.length === 0) return;
+
   const supabase = db();
-  const { data: existing } = await supabase
-    .from("haccp_diagrams")
-    .select("id")
-    .eq("plan_id", planId);
-
-  const existingIds = new Set(
-    ((existing ?? []) as { id: string }[]).map((row) => row.id)
-  );
-  const nextIds = new Set(diagrams.map((diagram) => diagram.id));
-
-  await Promise.all(
-    diagrams.map((diagram, index) => {
-      const row = diagramToRow(diagram, planId, index);
-      if (existingIds.has(diagram.id)) {
-        return supabase.from("haccp_diagrams").update(row).eq("id", diagram.id);
-      }
-      return supabase.from("haccp_diagrams").insert(row);
-    })
-  );
-
-  const removed = Array.from(existingIds).filter((id) => !nextIds.has(id));
-  if (removed.length > 0) {
-    await supabase.from("haccp_diagrams").delete().in("id", removed);
+  if (diagrams.length > 0) {
+    const { error } = await supabase
+      .from("haccp_diagrams")
+      .upsert(
+        diagrams.map((diagram, index) => diagramToRow(diagram, planId, index)),
+        { onConflict: "id" }
+      );
+    if (error) throw new Error(error.message);
   }
+
+  if (removedIds.length > 0) {
+    const { error } = await supabase
+      .from("haccp_diagrams")
+      .delete()
+      .in("id", removedIds);
+    if (error) throw new Error(error.message);
+  }
+
+  rememberWrite(key, snapshot);
 }
 
 export async function upsertValidation(
@@ -304,6 +398,14 @@ export async function upsertValidation(
   validation: PlanValidation,
   userId: string
 ) {
+  const key = `validation:${planId}`;
+  const snapshot = {
+    files: validation.files,
+    observations: validation.observations,
+    userId,
+  };
+  if (shouldSkipWrite(key, snapshot)) return;
+
   const payload = {
     plan_id: planId,
     evidence_files: validation.files,
@@ -319,6 +421,7 @@ export async function upsertValidation(
     .from("haccp_validations")
     .upsert(payload, { onConflict: "plan_id" });
   if (error) throw new Error(error.message);
+  rememberWrite(key, snapshot);
 }
 
 export async function createHazard(planId: string, partial: Partial<Hazard>, threshold: number) {
@@ -355,11 +458,16 @@ export async function updateHazard(
   threshold: number,
   stepName = ""
 ) {
+  const row = hazardToRow(hazard, planId, threshold, stepName);
+  const key = `hazard:${hazard.id}`;
+  const payload = stripUpdatedAt(row);
+  if (shouldSkipWrite(key, payload)) return;
   const { error } = await db()
     .from("haccp_plan_hazards")
-    .update(hazardToRow(hazard, planId, threshold, stepName))
+    .update(row)
     .eq("id", hazard.id);
   if (error) throw new Error(error.message);
+  rememberWrite(key, payload);
 }
 
 export async function deleteHazard(id: string) {
@@ -367,7 +475,7 @@ export async function deleteHazard(id: string) {
   if (error) throw new Error(error.message);
 }
 
-export async function upsertCcpDecision(input: {
+export type CcpDecisionInput = {
   planId: string;
   hazardId: string;
   q1: boolean | null | undefined;
@@ -376,9 +484,30 @@ export async function upsertCcpDecision(input: {
   q4: boolean | null | undefined;
   result: string;
   pccNumber: number | null;
-}) {
+};
+
+function ccpDecisionSnapshot(input: CcpDecisionInput) {
+  return {
+    hazardId: input.hazardId,
+    q1: input.q1 ?? null,
+    q2: input.q2 ?? null,
+    q3: input.q3 ?? null,
+    q4: input.q4 ?? null,
+    result: input.result,
+    pccNumber: input.pccNumber,
+  };
+}
+
+export async function upsertCcpDecisions(inputs: CcpDecisionInput[]) {
+  if (inputs.length === 0) return;
+  const planId = inputs[0].planId;
+  const key = `ccp:${planId}`;
+  const snapshot = inputs.map(ccpDecisionSnapshot);
+  if (shouldSkipWrite(key, snapshot)) return;
+
+  const now = new Date().toISOString();
   const { error } = await db().from("haccp_ccp_decisions").upsert(
-    {
+    inputs.map((input) => ({
       plan_id: input.planId,
       hazard_id: input.hazardId,
       q1: input.q1 ?? null,
@@ -387,9 +516,14 @@ export async function upsertCcpDecision(input: {
       q4: input.q4 ?? null,
       result: input.result,
       pcc_number: input.pccNumber,
-      updated_at: new Date().toISOString(),
-    },
+      updated_at: now,
+    })),
     { onConflict: "plan_id,hazard_id" }
   );
   if (error) throw new Error(error.message);
+  rememberWrite(key, snapshot);
+}
+
+export async function upsertCcpDecision(input: CcpDecisionInput) {
+  return upsertCcpDecisions([input]);
 }

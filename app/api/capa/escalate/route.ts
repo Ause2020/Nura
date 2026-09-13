@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { PERMISSIONS } from "@/lib/auth/permissions";
 import { authzResponse, requirePermission } from "@/lib/auth/require-permission";
-import { createNotification, notifyOrgManagers } from "@/lib/notifications";
+import {
+  createNotifications,
+  type CreateNotificationInput,
+} from "@/lib/notifications";
 import type { Nonconformity } from "@/types/database";
 
 export async function POST() {
@@ -18,41 +21,51 @@ export async function POST() {
 
   const today = new Date().toISOString().split("T")[0];
 
-  const { data: overdueActions } = await supabase
-    .from("capa_actions")
-    .select("id, nc_id, responsible, description")
-    .eq("organization_id", orgId)
-    .lt("due_date", today)
-    .neq("status", "completed");
+  const [{ data: overdueActions }, { data: overdueNcs }, { data: managerRows }] =
+    await Promise.all([
+      supabase
+        .from("capa_actions")
+        .select("id, nc_id, responsible, description")
+        .eq("organization_id", orgId)
+        .lt("due_date", today)
+        .neq("status", "completed"),
+      supabase
+        .from("nonconformities")
+        .select("id, nc_number, assigned_to, description")
+        .eq("organization_id", orgId)
+        .lt("due_date", today)
+        .not("status", "eq", "closed"),
+      supabase
+        .from("profiles")
+        .select("id")
+        .eq("organization_id", orgId)
+        .in("role", ["admin", "quality_manager"]),
+    ]);
 
   const actionIds = (overdueActions ?? []).map((a) => (a as { id: string }).id);
-
-  if (actionIds.length > 0) {
-    await supabase
-      .from("capa_actions")
-      .update({ status: "overdue" })
-      .in("id", actionIds);
-  }
-
-  const { data: overdueNcs } = await supabase
-    .from("nonconformities")
-    .select("id, nc_number, assigned_to, description")
-    .eq("organization_id", orgId)
-    .lt("due_date", today)
-    .not("status", "eq", "closed");
-
   const ncIds = (overdueNcs ?? []).map((n) => (n as { id: string }).id);
+  const managerIds = ((managerRows ?? []) as { id: string }[]).map((row) => row.id);
 
-  if (ncIds.length > 0) {
-    await supabase
-      .from("nonconformities")
-      .update({ status: "overdue" })
-      .in("id", ncIds);
-  }
+  await Promise.all([
+    actionIds.length > 0
+      ? supabase
+          .from("capa_actions")
+          .update({ status: "overdue" })
+          .in("id", actionIds)
+      : Promise.resolve(),
+    ncIds.length > 0
+      ? supabase
+          .from("nonconformities")
+          .update({ status: "overdue" })
+          .in("id", ncIds)
+      : Promise.resolve(),
+  ]);
+
+  const pending: CreateNotificationInput[] = [];
 
   for (const nc of (overdueNcs ?? []) as Nonconformity[]) {
     if (nc.assigned_to) {
-      await createNotification(supabase, {
+      pending.push({
         organizationId: orgId,
         userId: nc.assigned_to,
         type: "capa_overdue",
@@ -62,14 +75,17 @@ export async function POST() {
         dedupKey: `capa-overdue-nc-${nc.id}`,
       });
     }
-
-    await notifyOrgManagers(supabase, orgId, {
-      type: "capa_overdue",
-      title: "NC vencida — escalamiento",
-      message: `${nc.nc_number}: requiere atención del responsable`,
-      link: `/capa/${nc.id}`,
-      dedupKey: `capa-overdue-mgr-${nc.id}`,
-    });
+    for (const managerId of managerIds) {
+      pending.push({
+        organizationId: orgId,
+        userId: managerId,
+        type: "capa_overdue",
+        title: "NC vencida — escalamiento",
+        message: `${nc.nc_number}: requiere atención del responsable`,
+        link: `/capa/${nc.id}`,
+        dedupKey: `capa-overdue-mgr-${nc.id}`,
+      });
+    }
   }
 
   for (const action of overdueActions ?? []) {
@@ -79,13 +95,21 @@ export async function POST() {
       responsible: string;
       description: string;
     };
-    await notifyOrgManagers(supabase, orgId, {
-      type: "capa_overdue",
-      title: "Acción CAPA vencida",
-      message: `${row.responsible}: ${row.description.slice(0, 60)}`,
-      link: `/capa/${row.nc_id}`,
-      dedupKey: `capa-overdue-action-${row.id}`,
-    });
+    for (const managerId of managerIds) {
+      pending.push({
+        organizationId: orgId,
+        userId: managerId,
+        type: "capa_overdue",
+        title: "Acción CAPA vencida",
+        message: `${row.responsible}: ${row.description.slice(0, 60)}`,
+        link: `/capa/${row.nc_id}`,
+        dedupKey: `capa-overdue-action-${row.id}`,
+      });
+    }
+  }
+
+  if (pending.length > 0) {
+    await createNotifications(supabase, pending);
   }
 
   return NextResponse.json({

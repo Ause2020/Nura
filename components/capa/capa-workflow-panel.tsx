@@ -22,7 +22,6 @@ import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import type {
   CapaAction,
-  CapaStage,
   CapaStageLog,
   EffectivenessResult,
   Nc5Whys,
@@ -44,7 +43,6 @@ interface CapaWorkflowPanelProps {
   userId: string;
   userRole: UserRole;
   aiAvailable?: boolean;
-  pendingCapaTraining?: number;
   onNcUpdate: (nc: Nonconformity) => void;
   onActionsUpdate: (actions: CapaAction[]) => void;
   onStageLogUpdate: (log: CapaStageLog[]) => void;
@@ -62,7 +60,6 @@ export function CapaWorkflowPanel({
   organizationId,
   userId,
   userRole,
-  pendingCapaTraining = 0,
   aiAvailable = false,
   onNcUpdate,
   onActionsUpdate,
@@ -129,7 +126,6 @@ export function CapaWorkflowPanel({
       },
       actions,
       fiveWhys,
-      pendingCapaTraining,
     });
 
     if (validation) {
