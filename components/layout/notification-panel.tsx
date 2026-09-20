@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NOTIFICATION_TYPE_LABELS } from "@/lib/notifications/constants";
+import { isSafeNotificationLink } from "@/lib/notifications/safe-link";
 import type { NotificationRow } from "@/lib/notifications";
 import { formatRelativeTime } from "@/lib/dashboard/utils";
 import { cn } from "@/lib/utils";
@@ -133,7 +134,8 @@ export function NotificationPanel({
 
                 return (
                   <li key={notification.id}>
-                    {notification.link ? (
+                    {isSafeNotificationLink(notification.link) &&
+                    notification.link ? (
                       <Link
                         href={notification.link}
                         onClick={() => {

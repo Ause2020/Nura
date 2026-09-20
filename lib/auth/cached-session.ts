@@ -36,3 +36,26 @@ export const getSessionOrganizationId = cache(async (): Promise<string | null> =
   const profile = await getSessionProfile();
   return profile?.organization_id ?? null;
 });
+
+export type SessionOrganizationBrand = {
+  name: string;
+  logo_url: string | null;
+};
+
+/** Brand for the sidebar only. RLS returns the caller's org; no client org id. */
+export const getSessionOrganizationBrand = cache(
+  async (): Promise<SessionOrganizationBrand | null> => {
+    const organizationId = await getSessionOrganizationId();
+    if (!organizationId) return null;
+
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("organizations")
+      .select("name, logo_url")
+      .eq("id", organizationId)
+      .maybeSingle();
+
+    if (error || !data) return null;
+    return data as SessionOrganizationBrand;
+  }
+);

@@ -3,6 +3,7 @@ import {
   runNotificationCronAllOrgs,
   runNotificationCronForOrg,
 } from "@/lib/notifications/cron";
+import { assertOrganizationAccess } from "@/lib/auth/require-permission";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -47,6 +48,16 @@ export async function POST(request: Request) {
 
   if (!orgId) {
     return NextResponse.json({ error: "No organization" }, { status: 400 });
+  }
+
+  try {
+    await assertOrganizationAccess({
+      supabase,
+      organizationId: orgId,
+      email: user.email,
+    });
+  } catch {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const result = await runNotificationCronForOrg(supabase, orgId);

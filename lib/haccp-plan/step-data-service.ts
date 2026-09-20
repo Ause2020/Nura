@@ -9,6 +9,9 @@ import type {
   Step9Payload,
 } from "@/lib/haccp-plan/types";
 import { rememberWrite, shouldSkipWrite } from "@/lib/haccp-plan/write-guard";
+import { startNavTimer } from "@/lib/perf/dev-time";
+
+const HACCP_NAV = { path: "/haccp" };
 
 export type StepPayloadMap = {
   7: Step7Payload;
@@ -17,6 +20,28 @@ export type StepPayloadMap = {
   10: Step10Payload;
   11: Step11Payload;
 };
+
+export type StepDataId = keyof StepPayloadMap;
+
+export type LoadedStepData = Partial<{
+  [K in StepDataId]: StepPayloadMap[K] | null;
+}>;
+
+export function requiredStepDataIds(currentStep: number): StepDataId[] {
+  if (currentStep === 7) return [7];
+  if (currentStep === 8) return [7, 8];
+  if (currentStep === 9) return [7, 8, 9];
+  if (currentStep === 10) return [7, 8, 10];
+  if (currentStep === 11) return [11];
+  return [];
+}
+
+export function isStepDataKeyLoaded(
+  data: LoadedStepData,
+  stepId: StepDataId
+): boolean {
+  return Object.prototype.hasOwnProperty.call(data, stepId);
+}
 
 function readLocal(): Record<string, unknown> {
   if (typeof window === "undefined") return {};
@@ -126,33 +151,65 @@ export async function saveStepData<K extends keyof StepPayloadMap>(
   rememberWrite(key, payload);
 }
 
-export async function getAllStepData(organizationId: string, client?: HaccpDbClient) {
+export async function getStepDataForSteps(
+  organizationId: string,
+  stepIds: StepDataId[],
+  client?: HaccpDbClient
+): Promise<LoadedStepData> {
+  const unique = [...new Set(stepIds)];
+  const result: LoadedStepData = {};
+  if (unique.length === 0) return result;
+
   const supabase = client ?? createClient();
+  const endStepQuery = startNavTimer(
+    "PAGE",
+    `haccp_step_data ${unique.join(",")}`,
+    HACCP_NAV
+  );
   const { data, error } = await supabase
     .from("haccp_step_data")
     .select("step_id, data")
     .eq("organization_id", organizationId)
-    .in("step_id", [7, 8, 9, 10, 11]);
+    .in("step_id", unique);
+  endStepQuery();
 
-  const byStep: Partial<Record<keyof StepPayloadMap, StepPayloadMap[keyof StepPayloadMap]>> =
-    {};
+  if (error) {
+    throw new Error(error.message);
+  }
 
-  if (!error && data) {
+  const byStep: Partial<Record<StepDataId, StepPayloadMap[StepDataId]>> = {};
+  if (data) {
     for (const row of data as { step_id: number; data: unknown }[]) {
-      const stepId = row.step_id as keyof StepPayloadMap;
-      if (stepId === 7 || stepId === 8 || stepId === 9 || stepId === 10 || stepId === 11) {
+      const stepId = row.step_id as StepDataId;
+      if (unique.includes(stepId)) {
         byStep[stepId] = row.data as StepPayloadMap[typeof stepId];
       }
     }
   }
 
-  const result = {
-    7: (byStep[7] as StepPayloadMap[7] | undefined) ?? null,
-    8: (byStep[8] as StepPayloadMap[8] | undefined) ?? null,
-    9: (byStep[9] as StepPayloadMap[9] | undefined) ?? null,
-    10: (byStep[10] as StepPayloadMap[10] | undefined) ?? null,
-    11: (byStep[11] as StepPayloadMap[11] | undefined) ?? null,
-  };
+  for (const stepId of unique) {
+    const payload = byStep[stepId];
+    if (stepId === 7) result[7] = (payload as StepPayloadMap[7] | undefined) ?? null;
+    if (stepId === 8) result[8] = (payload as StepPayloadMap[8] | undefined) ?? null;
+    if (stepId === 9) result[9] = (payload as StepPayloadMap[9] | undefined) ?? null;
+    if (stepId === 10) result[10] = (payload as StepPayloadMap[10] | undefined) ?? null;
+    if (stepId === 11) result[11] = (payload as StepPayloadMap[11] | undefined) ?? null;
+  }
   primeStepDataWrites(organizationId, result);
   return result;
+}
+
+export async function getAllStepData(organizationId: string, client?: HaccpDbClient) {
+  const loaded = await getStepDataForSteps(
+    organizationId,
+    [7, 8, 9, 10, 11],
+    client
+  );
+  return {
+    7: loaded[7] ?? null,
+    8: loaded[8] ?? null,
+    9: loaded[9] ?? null,
+    10: loaded[10] ?? null,
+    11: loaded[11] ?? null,
+  };
 }

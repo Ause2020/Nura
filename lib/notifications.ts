@@ -23,12 +23,6 @@ export interface NotificationRow {
   created_at: string;
 }
 
-type SupabaseClient = {
-  from: (table: string) => ReturnType<
-    ReturnType<typeof import("@/lib/supabase/client").createClient>["from"]
-  >;
-};
-
 type InsertRow = {
   organization_id: string;
   user_id: string;
@@ -38,6 +32,16 @@ type InsertRow = {
   link: string | null;
   dedup_key: string | null;
   read: false;
+};
+
+type SupabaseClient = {
+  from: (table: string) => ReturnType<
+    ReturnType<typeof import("@/lib/supabase/client").createClient>["from"]
+  >;
+  rpc?: (
+    fn: string,
+    args?: Record<string, unknown>
+  ) => PromiseLike<{ data: unknown; error: { message?: string } | null }>;
 };
 
 function toInsertRow(input: CreateNotificationInput): InsertRow {
@@ -53,51 +57,17 @@ function toInsertRow(input: CreateNotificationInput): InsertRow {
   };
 }
 
-function isUniqueViolation(error: { code?: string } | null): boolean {
-  return error?.code === "23505";
-}
-
-function isMissingConflictTarget(error: { message?: string } | null): boolean {
-  return /no unique or exclusion constraint matching the ON CONFLICT/i.test(
-    error?.message ?? ""
-  );
-}
-
-async function insertPlain(
+async function insertViaRpc(
   supabase: SupabaseClient,
   rows: InsertRow[]
 ): Promise<NotificationRow[]> {
   if (rows.length === 0) return [];
-  const { data, error } = await supabase
-    .from("notifications")
-    .insert(rows)
-    .select("*");
-
-  if (!error) return (data ?? []) as NotificationRow[];
-  if (isUniqueViolation(error)) return [];
-  return [];
-}
-
-async function insertIgnoringDuplicates(
-  supabase: SupabaseClient,
-  rows: InsertRow[]
-): Promise<NotificationRow[]> {
-  if (rows.length === 0) return [];
-
-  const { data, error } = await supabase
-    .from("notifications")
-    .upsert(rows, {
-      onConflict: "organization_id,user_id,dedup_key",
-      ignoreDuplicates: true,
-    })
-    .select("*");
-
-  if (!error) return (data ?? []) as NotificationRow[];
-  if (isUniqueViolation(error)) return [];
-  if (isMissingConflictTarget(error)) {
-    return insertPlain(supabase, rows);
-  }
-  return [];
+  if (!supabase.rpc) return [];
+  const { data, error } = await supabase.rpc("create_org_notifications", {
+    p_rows: rows,
+  });
+  if (error || !data) return [];
+  return data as NotificationRow[];
 }
 
 export async function createNotifications(
@@ -105,21 +75,10 @@ export async function createNotifications(
   inputs: CreateNotificationInput[]
 ): Promise<NotificationRow[]> {
   if (inputs.length === 0) return [];
-
-  const withKey: InsertRow[] = [];
-  const withoutKey: InsertRow[] = [];
-  for (const input of inputs) {
-    const row = toInsertRow(input);
-    if (row.dedup_key) withKey.push(row);
-    else withoutKey.push(row);
-  }
-
-  const [deduped, plain] = await Promise.all([
-    insertIgnoringDuplicates(supabase, withKey),
-    insertPlain(supabase, withoutKey),
-  ]);
-
-  return [...deduped, ...plain];
+  return insertViaRpc(
+    supabase,
+    inputs.map((input) => toInsertRow(input))
+  );
 }
 
 export async function createNotification(

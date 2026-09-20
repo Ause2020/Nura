@@ -1,23 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CreateVersionModal } from "@/components/haccp-plan/create-version-modal";
+import { CreateVersionHost } from "@/components/haccp-plan/create-version-host";
+import {
+  RiskMatrixModal,
+  Step2Product,
+  Step3Use,
+  Step4Flow,
+  Step5Validation,
+  Step6Hazards,
+  Step7Ccp,
+  Step8Limits,
+  Step9Monitoring,
+  Step10Corrective,
+  Step11Verification,
+  Step12Docs,
+} from "@/components/haccp-plan/dynamic-steps";
 import { PlanStepper } from "@/components/haccp-plan/plan-stepper";
-import { RiskMatrixModal } from "@/components/haccp-plan/risk-matrix-modal";
 import { StepChecklist } from "@/components/haccp-plan/step-checklist";
+import { StepChunkFallback } from "@/components/haccp-plan/step-chunk-fallback";
 import { StepHeader } from "@/components/haccp-plan/step-header";
 import { Step1Team } from "@/components/haccp-plan/steps/step-1-team";
-import { Step2Product } from "@/components/haccp-plan/steps/step-2-product";
-import { Step3Use } from "@/components/haccp-plan/steps/step-3-use";
-import { Step4Flow } from "@/components/haccp-plan/steps/step-4-flow";
-import { Step5Validation } from "@/components/haccp-plan/steps/step-5-validation";
-import { Step6Hazards } from "@/components/haccp-plan/steps/step-6-hazards";
-import { Step7Ccp } from "@/components/haccp-plan/steps/step-7-ccp";
-import { Step8Limits } from "@/components/haccp-plan/steps/step-8-limits";
-import { Step9Monitoring } from "@/components/haccp-plan/steps/step-9-monitoring";
-import { Step10Corrective } from "@/components/haccp-plan/steps/step-10-corrective";
-import { Step11Verification } from "@/components/haccp-plan/steps/step-11-verification";
-import { Step12Docs } from "@/components/haccp-plan/steps/step-12-docs";
 import { ccpDecisionLabel, evaluateCcpTree } from "@/lib/haccp-plan/ccp-tree";
 import {
   createDiagram,
@@ -39,13 +42,16 @@ import {
 import { countCompletedSteps } from "@/lib/haccp-plan/checklists";
 import { isSignificant } from "@/lib/haccp-plan/risk";
 import {
+  getStepDataForSteps,
+  isStepDataKeyLoaded,
   primeStepDataWrites,
   readStepLocalBackup,
+  requiredStepDataIds,
   saveStepData,
   writeStepLocalBackup,
+  type LoadedStepData,
+  type StepDataId,
 } from "@/lib/haccp-plan/step-data-service";
-import type { StepPayloadMap } from "@/lib/haccp-plan/step-data-service";
-import { buildStepSnapshot, createPlanVersionDocument } from "@/lib/haccp-plan/snapshots";
 import { useDebouncedCallback } from "@/lib/haccp-plan/use-debounced-callback";
 import type {
   ChecklistProgress,
@@ -61,11 +67,44 @@ import type {
 } from "@/lib/haccp-plan/types";
 import { createClient } from "@/lib/supabase/client";
 
+function loadedStepIds(data: LoadedStepData): Set<StepDataId> {
+  const next = new Set<StepDataId>();
+  for (const id of [7, 8, 9, 10, 11] as const) {
+    if (isStepDataKeyLoaded(data, id)) next.add(id);
+  }
+  return next;
+}
+
+function mergeLocalStepData(data: LoadedStepData): LoadedStepData {
+  const local = readStepLocalBackup();
+  const next: LoadedStepData = { ...data };
+  if (isStepDataKeyLoaded(data, 7) && local[7] && !(data[7]?.hazards.length)) {
+    next[7] = local[7];
+  }
+  if (isStepDataKeyLoaded(data, 8) && local[8] && !(data[8]?.criticalLimits.length)) {
+    next[8] = local[8];
+  }
+  if (isStepDataKeyLoaded(data, 9) && local[9] && !(data[9]?.monitoringPlans.length)) {
+    next[9] = local[9];
+  }
+  if (
+    isStepDataKeyLoaded(data, 10) &&
+    local[10] &&
+    !(data[10]?.correctiveActions.length)
+  ) {
+    next[10] = local[10];
+  }
+  if (isStepDataKeyLoaded(data, 11) && local[11] && !data[11]) {
+    next[11] = local[11];
+  }
+  return next;
+}
+
 interface HaccpPlanWizardProps {
   organizationId: string;
   userId: string;
   initial: HaccpPlanDetails;
-  initialStepData: { [K in keyof StepPayloadMap]?: StepPayloadMap[K] | null };
+  initialStepData: LoadedStepData;
 }
 
 export function HaccpPlanWizard({
@@ -103,6 +142,7 @@ export function HaccpPlanWizard({
       generalObservations: "",
     }
   );
+  const [loadedSteps, setLoadedSteps] = useState(() => loadedStepIds(initialStepData));
   const [selectedCcpId, setSelectedCcpId] = useState<string | null>(null);
   const [matrixOpen, setMatrixOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
@@ -110,6 +150,9 @@ export function HaccpPlanWizard({
   const diagramsRef = useRef(diagrams);
   diagramsRef.current = diagrams;
   const previousStep = useRef(currentStep);
+  const loadedStepsRef = useRef(loadedSteps);
+  loadedStepsRef.current = loadedSteps;
+  const inflightStepsRef = useRef<Set<StepDataId>>(new Set());
   const planPatchRef = useRef<
     Partial<{
       current_step: number;
@@ -141,6 +184,63 @@ export function HaccpPlanWizard({
     });
     primeStepDataWrites(organizationId, initialStepData);
   }
+
+  const applyStepData = useCallback((data: LoadedStepData) => {
+    const merged = mergeLocalStepData(data);
+    primeStepDataWrites(organizationId, merged);
+    if (isStepDataKeyLoaded(merged, 7)) {
+      setStep7(merged[7]?.hazards ?? []);
+      setCcpQuestions(merged[7]?.questions ?? {});
+    }
+    if (isStepDataKeyLoaded(merged, 8)) {
+      setStep8(merged[8]?.criticalLimits ?? []);
+    }
+    if (isStepDataKeyLoaded(merged, 9)) {
+      setStep9(merged[9]?.monitoringPlans ?? []);
+    }
+    if (isStepDataKeyLoaded(merged, 10)) {
+      setStep10(merged[10]?.correctiveActions ?? []);
+    }
+    if (isStepDataKeyLoaded(merged, 11)) {
+      setStep11(
+        merged[11]?.verificationPlan ?? {
+          activities: [],
+          generalObservations: "",
+        }
+      );
+    }
+    setLoadedSteps((prev) => {
+      const next = new Set(prev);
+      for (const id of [7, 8, 9, 10, 11] as const) {
+        if (isStepDataKeyLoaded(merged, id)) next.add(id);
+      }
+      return next;
+    });
+  }, [organizationId]);
+
+  const ensureStepData = useCallback(
+    async (step: number) => {
+      const missing = requiredStepDataIds(step).filter(
+        (id) => !loadedStepsRef.current.has(id) && !inflightStepsRef.current.has(id)
+      );
+      if (missing.length === 0) return;
+      missing.forEach((id) => inflightStepsRef.current.add(id));
+      try {
+        const data = await getStepDataForSteps(organizationId, missing);
+        applyStepData(data);
+        setError("");
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "No se pudieron cargar los datos del paso"
+        );
+      } finally {
+        missing.forEach((id) => inflightStepsRef.current.delete(id));
+      }
+    },
+    [applyStepData, organizationId]
+  );
 
   const details: HaccpPlanDetails = {
     plan: { ...plan, checklistProgress: progress, currentStep },
@@ -303,24 +403,12 @@ export function HaccpPlanWizard({
   };
 
   useEffect(() => {
-    const local = readStepLocalBackup();
-    if (local[7] && !(initialStepData[7]?.hazards.length)) {
-      setStep7(local[7].hazards);
-      setCcpQuestions(local[7].questions ?? {});
-    }
-    if (local[8] && !(initialStepData[8]?.criticalLimits.length)) {
-      setStep8(local[8].criticalLimits);
-    }
-    if (local[9] && !(initialStepData[9]?.monitoringPlans.length)) {
-      setStep9(local[9].monitoringPlans);
-    }
-    if (local[10] && !(initialStepData[10]?.correctiveActions.length)) {
-      setStep10(local[10].correctiveActions);
-    }
-    if (local[11] && !initialStepData[11]) {
-      setStep11(local[11].verificationPlan);
-    }
-  }, [initialStepData]);
+    applyStepData(initialStepData);
+  }, [applyStepData, initialStepData]);
+
+  useEffect(() => {
+    void ensureStepData(currentStep);
+  }, [currentStep, ensureStepData]);
 
   useEffect(() => {
     if (previousStep.current === 4 && currentStep !== 4) {
@@ -379,8 +467,14 @@ export function HaccpPlanWizard({
   }, [plan.id]);
 
   function goTo(step: number) {
-    setCurrentStep(Math.min(12, Math.max(1, step)));
+    const next = Math.min(12, Math.max(1, step));
+    void ensureStepData(next);
+    setCurrentStep(next);
   }
+
+  const stepDataReady = requiredStepDataIds(currentStep).every((id) =>
+    loadedSteps.has(id)
+  );
 
   return (
     <div className="px-6 py-6 space-y-5">
@@ -607,7 +701,8 @@ export function HaccpPlanWizard({
         />
       )}
 
-      {currentStep === 7 && (
+      {currentStep === 7 && !stepDataReady && <StepChunkFallback />}
+      {currentStep === 7 && stepDataReady && (
         <Step7Ccp
           hazards={significantRows}
           selectedId={selectedCcpId}
@@ -631,7 +726,8 @@ export function HaccpPlanWizard({
         />
       )}
 
-      {currentStep === 8 && (
+      {currentStep === 8 && !stepDataReady && <StepChunkFallback />}
+      {currentStep === 8 && stepDataReady && (
         <Step8Limits
           ccps={ccps}
           limits={step8}
@@ -642,7 +738,8 @@ export function HaccpPlanWizard({
           }}
         />
       )}
-      {currentStep === 9 && (
+      {currentStep === 9 && !stepDataReady && <StepChunkFallback />}
+      {currentStep === 9 && stepDataReady && (
         <Step9Monitoring
           ccps={ccps}
           limits={step8}
@@ -654,7 +751,8 @@ export function HaccpPlanWizard({
           }}
         />
       )}
-      {currentStep === 10 && (
+      {currentStep === 10 && !stepDataReady && <StepChunkFallback />}
+      {currentStep === 10 && stepDataReady && (
         <Step10Corrective
           ccps={ccps}
           limits={step8}
@@ -666,7 +764,8 @@ export function HaccpPlanWizard({
           }}
         />
       )}
-      {currentStep === 11 && (
+      {currentStep === 11 && !stepDataReady && <StepChunkFallback />}
+      {currentStep === 11 && stepDataReady && (
         <Step11Verification
           activities={step11.activities}
           observations={step11.generalObservations}
@@ -705,34 +804,40 @@ export function HaccpPlanWizard({
         </button>
       </div>
 
-      <RiskMatrixModal
-        open={matrixOpen}
-        matrix={plan.riskMatrix}
-        onClose={() => setMatrixOpen(false)}
-        onSave={(matrix: RiskMatrix) => {
-          setPlan((prev) => ({ ...prev, riskMatrix: matrix }));
-          void updatePlanFields(plan.id, { risk_matrix: matrix });
-        }}
-      />
-      <CreateVersionModal
-        open={versionOpen}
-        stepId={currentStep}
-        onClose={() => setVersionOpen(false)}
-        onSubmit={async (input) => {
-          await createPlanVersionDocument({
-            organizationId,
-            userId,
-            stepId: currentStep,
-            ...input,
-            snapshot: buildStepSnapshot(
-              currentStep,
-              details,
-              { 7: { hazards: step7, questions: ccpQuestions }, 8: { criticalLimits: step8 }, 9: { monitoringPlans: step9 }, 10: { correctiveActions: step10 }, 11: { verificationPlan: step11 } },
-              activeDiagramId
-            ),
-          });
-        }}
-      />
+      {matrixOpen && (
+        <RiskMatrixModal
+          open
+          matrix={plan.riskMatrix}
+          onClose={() => setMatrixOpen(false)}
+          onSave={(matrix: RiskMatrix) => {
+            setPlan((prev) => ({ ...prev, riskMatrix: matrix }));
+            void updatePlanFields(plan.id, { risk_matrix: matrix });
+          }}
+        />
+      )}
+      {versionOpen && (
+        <CreateVersionHost
+          stepId={currentStep}
+          organizationId={organizationId}
+          userId={userId}
+          details={details}
+          stepData={{
+            ...(loadedSteps.has(7)
+              ? { 7: { hazards: step7, questions: ccpQuestions } }
+              : {}),
+            ...(loadedSteps.has(8) ? { 8: { criticalLimits: step8 } } : {}),
+            ...(loadedSteps.has(9) ? { 9: { monitoringPlans: step9 } } : {}),
+            ...(loadedSteps.has(10)
+              ? { 10: { correctiveActions: step10 } }
+              : {}),
+            ...(loadedSteps.has(11)
+              ? { 11: { verificationPlan: step11 } }
+              : {}),
+          }}
+          activeDiagramId={activeDiagramId}
+          onClose={() => setVersionOpen(false)}
+        />
+      )}
     </div>
   );
 }

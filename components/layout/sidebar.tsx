@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import Image from "next/image";
+import { AppNavLink } from "@/components/layout/app-nav-link";
 import { usePathname } from "next/navigation";
 import {
   AlertTriangle,
@@ -99,7 +99,7 @@ export function Sidebar({
     >
       <div className="flex items-center justify-between px-3 h-14 border-b border-white/10">
         {!collapsed && (
-          <Link
+          <AppNavLink
             href="/dashboard"
             className="hidden md:flex items-center gap-2 min-w-0"
           >
@@ -117,7 +117,7 @@ export function Sidebar({
                 Nura
               </span>
             )}
-          </Link>
+          </AppNavLink>
         )}
         <span className={cn("font-display text-lg font-semibold md:hidden")}>
           {organizationLogoUrl ? (
@@ -173,7 +173,7 @@ export function Sidebar({
             pathname === href || pathname.startsWith(`${href}/`);
 
           return (
-            <Link
+            <AppNavLink
               key={href}
               href={href}
               title={label}
@@ -191,7 +191,7 @@ export function Sidebar({
               {href === "/capa" && organizationId && (
                 <CapaNavBadge organizationId={organizationId} />
               )}
-            </Link>
+            </AppNavLink>
           );
         })}
       </nav>

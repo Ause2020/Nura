@@ -29,6 +29,9 @@ import {
   shouldSkipWrite,
   stripUpdatedAt,
 } from "@/lib/haccp-plan/write-guard";
+import { startNavTimer } from "@/lib/perf/dev-time";
+
+const HACCP_NAV = { path: "/haccp" };
 
 function db(client?: HaccpDbClient) {
   return client ?? createClient();
@@ -56,6 +59,7 @@ export async function getOrCreateActivePlan(
 
   // Plan SELECT/INSERT must finish before loadPlanDetails: children
   // filter by plan_id, and empty diagrams/products are seeded sequentially.
+  const endPlanSelect = startNavTimer("PAGE", "haccp_plans select", HACCP_NAV);
   const { data: existing } = await supabase
     .from("haccp_plans")
     .select("*")
@@ -63,10 +67,12 @@ export async function getOrCreateActivePlan(
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  endPlanSelect();
 
   let planRow = existing as Record<string, unknown> | null;
 
   if (!planRow) {
+    const endPlanInsert = startNavTimer("PAGE", "haccp_plans insert", HACCP_NAV);
     const { data: created, error } = await supabase
       .from("haccp_plans")
       .insert({
@@ -78,6 +84,7 @@ export async function getOrCreateActivePlan(
       })
       .select("*")
       .single();
+    endPlanInsert();
 
     if (error || !created) {
       throw new Error(error?.message ?? "No se pudo crear el plan HACCP");
@@ -85,20 +92,69 @@ export async function getOrCreateActivePlan(
     planRow = created as Record<string, unknown>;
   }
 
-  return loadPlanDetails(supabase, mapPlan(planRow));
+  const endDetails = startNavTimer("PAGE", "loadPlanDetails", HACCP_NAV);
+  try {
+    return await loadPlanDetails(supabase, mapPlan(planRow));
+  } finally {
+    endDetails();
+  }
 }
 
 async function loadPlanDetails(
   supabase: HaccpDbClient,
   plan: HaccpPlan
 ): Promise<HaccpPlanDetails> {
+  const endTeams = startNavTimer("PAGE", "haccp_teams", HACCP_NAV);
+  const endProducts = startNavTimer("PAGE", "haccp_plan_products", HACCP_NAV);
+  const endDiagrams = startNavTimer("PAGE", "haccp_diagrams", HACCP_NAV);
+  const endValidations = startNavTimer("PAGE", "haccp_validations", HACCP_NAV);
+  const endHazards = startNavTimer("PAGE", "haccp_plan_hazards", HACCP_NAV);
   const [teamRes, productsRes, diagramsRes, validationRes, hazardsRes] =
     await Promise.all([
-      supabase.from("haccp_teams").select("*").eq("plan_id", plan.id).order("order_index"),
-      supabase.from("haccp_plan_products").select("*").eq("plan_id", plan.id).order("order_index"),
-      supabase.from("haccp_diagrams").select("*").eq("plan_id", plan.id).order("order_index"),
-      supabase.from("haccp_validations").select("*").eq("plan_id", plan.id).maybeSingle(),
-      supabase.from("haccp_plan_hazards").select("*").eq("plan_id", plan.id),
+      (async () => {
+        const res = await supabase
+          .from("haccp_teams")
+          .select("*")
+          .eq("plan_id", plan.id)
+          .order("order_index");
+        endTeams();
+        return res;
+      })(),
+      (async () => {
+        const res = await supabase
+          .from("haccp_plan_products")
+          .select("*")
+          .eq("plan_id", plan.id)
+          .order("order_index");
+        endProducts();
+        return res;
+      })(),
+      (async () => {
+        const res = await supabase
+          .from("haccp_diagrams")
+          .select("*")
+          .eq("plan_id", plan.id)
+          .order("order_index");
+        endDiagrams();
+        return res;
+      })(),
+      (async () => {
+        const res = await supabase
+          .from("haccp_validations")
+          .select("*")
+          .eq("plan_id", plan.id)
+          .maybeSingle();
+        endValidations();
+        return res;
+      })(),
+      (async () => {
+        const res = await supabase
+          .from("haccp_plan_hazards")
+          .select("*")
+          .eq("plan_id", plan.id);
+        endHazards();
+        return res;
+      })(),
     ]);
 
   let diagrams = ((diagramsRes.data ?? []) as Record<string, unknown>[]).map(
@@ -106,17 +162,29 @@ async function loadPlanDetails(
   );
 
   if (diagrams.length === 0) {
-    const seeded = await createDiagram(plan.id, "Proceso Principal", SEED_NODES, supabase, 0);
+    const endSeedDiagram = startNavTimer("PAGE", "seed diagram", HACCP_NAV);
+    const seeded = await createDiagram(
+      plan.id,
+      "Proceso Principal",
+      SEED_NODES,
+      supabase,
+      0
+    );
+    endSeedDiagram();
     diagrams = [seeded];
   }
 
   if ((productsRes.data ?? []).length === 0) {
+    const endSeedProduct = startNavTimer("PAGE", "seed product", HACCP_NAV);
     await createProduct(plan.id, "Producto", supabase, 0);
+    endSeedProduct();
+    const endReselect = startNavTimer("PAGE", "haccp_plan_products reselect", HACCP_NAV);
     const { data } = await supabase
       .from("haccp_plan_products")
       .select("*")
       .eq("plan_id", plan.id)
       .order("order_index");
+    endReselect();
     productsRes.data = data;
   }
 

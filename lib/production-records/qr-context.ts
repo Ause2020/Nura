@@ -1,6 +1,8 @@
+import { organizationRecordIsAllowed } from "@/lib/access/constants";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isQrLinkActive } from "@/lib/production-records/qr";
 import type {
+  AccessStatus,
   MonitoringQrLink,
   ProductionFormField,
   ProductionFormSection,
@@ -40,15 +42,20 @@ export async function getFieldMonitorContext(
       .maybeSingle(),
     admin
       .from("organizations")
-      .select("name")
+      .select("name, access_status, access_expires_at")
       .eq("id", row.organization_id)
       .maybeSingle(),
   ]);
 
   const template = templateData as ProductionFormTemplate | null;
-  const org = orgData as { name: string } | null;
+  const org = orgData as {
+    name: string;
+    access_status: AccessStatus;
+    access_expires_at: string | null;
+  } | null;
 
   if (!template || !template.is_active) return null;
+  if (!organizationRecordIsAllowed(org)) return null;
 
   const [{ data: sectionsData }, { data: fieldsData }] = await Promise.all([
     admin

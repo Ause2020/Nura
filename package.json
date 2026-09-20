@@ -16,10 +16,17 @@
     "test:kiosk": "node --test scripts/verify-kiosk-perf.mjs",
     "test:haccp-writes": "node --test scripts/verify-haccp-writes.mjs",
     "test:rls": "node --test scripts/verify-rls-optimization.mjs",
-    "test:notifications": "node --test scripts/verify-notifications-perf.mjs",
+    "test:notifications": "node --test scripts/verify-notifications-perf.mjs scripts/verify-notification-tenant.mjs",
     "test:ai-insights": "node --test scripts/verify-ai-insights-perf.mjs",
     "test:jobs": "node --test scripts/verify-background-jobs.mjs",
-    "test": "node --test scripts/verify-private-storage.mjs scripts/verify-signed-urls.mjs scripts/verify-spreadsheet-export.mjs scripts/verify-rbac.mjs scripts/verify-rate-limit.mjs scripts/verify-dashboard-perf.mjs scripts/verify-kiosk-perf.mjs scripts/verify-haccp-writes.mjs scripts/verify-rls-optimization.mjs scripts/verify-notifications-perf.mjs scripts/verify-ai-insights-perf.mjs scripts/verify-background-jobs.mjs"
+    "test:nav-phase-2a": "node --test scripts/verify-nav-phase-2a.mjs",
+    "test:haccp-p0": "node --test scripts/verify-haccp-p0.mjs",
+    "test:org-access-guard": "node --test scripts/verify-org-access-guard.mjs",
+    "test:org-access-enforcement": "node --test scripts/verify-org-access-enforcement.mjs",
+    "test:notification-tenant": "node --test scripts/verify-notification-tenant.mjs",
+    "test:haccp-rbac-drift": "node --test scripts/verify-haccp-rbac-drift.mjs",
+    "test:rbac-generator-grants": "node --test scripts/verify-rbac-generator-grants.mjs",
+    "test": "node --test scripts/verify-private-storage.mjs scripts/verify-signed-urls.mjs scripts/verify-spreadsheet-export.mjs scripts/verify-rbac.mjs scripts/verify-rate-limit.mjs scripts/verify-dashboard-perf.mjs scripts/verify-kiosk-perf.mjs scripts/verify-haccp-writes.mjs scripts/verify-rls-optimization.mjs scripts/verify-notifications-perf.mjs scripts/verify-ai-insights-perf.mjs scripts/verify-background-jobs.mjs scripts/verify-nav-phase-2a.mjs scripts/verify-haccp-p0.mjs scripts/verify-org-access-guard.mjs scripts/verify-org-access-enforcement.mjs scripts/verify-notification-tenant.mjs scripts/verify-haccp-rbac-drift.mjs scripts/verify-rbac-generator-grants.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",

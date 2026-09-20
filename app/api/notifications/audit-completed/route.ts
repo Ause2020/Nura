@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auditCompletedEmail } from "@/lib/email/templates";
 import { getUserEmail, sendEmail } from "@/lib/email/send";
 import { getNotificationPreferencesAdmin } from "@/lib/settings/preferences";
+import { assertOrganizationAccess } from "@/lib/auth/require-permission";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -40,6 +41,16 @@ export async function POST(request: Request) {
     } | null;
 
     if (!profile?.organization_id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    try {
+      await assertOrganizationAccess({
+        supabase,
+        organizationId: profile.organization_id,
+        email: user.email,
+      });
+    } catch {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

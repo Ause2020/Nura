@@ -93,6 +93,13 @@ function importPermissionsFromSource() {
 
 const { PERMISSIONS, hasPermission, isOrgRole } = await loadPermissions();
 
+test("operator no diseña HACCP; sí ejecuta monitoreo", () => {
+  assert.equal(hasPermission("operator", PERMISSIONS.haccp.manage), false);
+  assert.equal(hasPermission("operator", PERMISSIONS.haccp.read), false);
+  assert.equal(hasPermission("operator", PERMISSIONS.monitoring.read), true);
+  assert.equal(hasPermission("operator", PERMISSIONS.monitoring.execute), true);
+});
+
 test("operator no puede operaciones de admin", () => {
   assert.equal(hasPermission("operator", PERMISSIONS.users.manage), false);
   assert.equal(hasPermission("operator", PERMISSIONS.settings.manage), false);

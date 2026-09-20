@@ -22,9 +22,17 @@ const migration = readFileSync(
 );
 const send = readFileSync(join(ROOT, "lib/email/send.ts"), "utf8");
 
-test("createNotification no hace SELECT previo: upsert ON CONFLICT DO NOTHING", () => {
-  assert.match(notifications, /onConflict:\s*"organization_id,user_id,dedup_key"/);
-  assert.match(notifications, /ignoreDuplicates:\s*true/);
+test("createNotification no hace SELECT previo: RPC + ON CONFLICT DO NOTHING", () => {
+  const migration049 = readFileSync(
+    join(ROOT, "supabase/migrations/049_notifications_same_org.sql"),
+    "utf8"
+  );
+  assert.match(notifications, /create_org_notifications/);
+  assert.match(
+    migration049,
+    /ON CONFLICT ON CONSTRAINT notifications_dedup_key DO NOTHING/
+  );
+  assert.doesNotMatch(notifications, /\.from\("notifications"\)\s*\.insert/);
   assert.doesNotMatch(
     notifications,
     /\.eq\("dedup_key"[\s\S]{0,80}maybeSingle/

@@ -2,28 +2,36 @@ import { HaccpPlanWizard } from "@/components/haccp-plan/haccp-plan-wizard";
 import { getSessionUser } from "@/lib/auth/cached-session";
 import { requireOrganizationId } from "@/lib/haccp/auth";
 import { getOrCreateActivePlan } from "@/lib/haccp-plan/data-service";
-import { getAllStepData } from "@/lib/haccp-plan/step-data-service";
-import { startDevTimer } from "@/lib/perf/dev-time";
+import {
+  getStepDataForSteps,
+  requiredStepDataIds,
+} from "@/lib/haccp-plan/step-data-service";
+import { startNavTimer, timeNav } from "@/lib/perf/dev-time";
+import { rscNavCtx } from "@/lib/perf/rsc-nav";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
 export default async function HaccpPlanPage() {
-  const endTimer = startDevTimer("/haccp");
+  const nav = await rscNavCtx("/haccp");
+  const endPage = startNavTimer("PAGE", "total", nav);
   const organizationId = await requireOrganizationId();
   const user = await getSessionUser();
   if (!user) redirect("/login");
 
   const supabase = await createClient();
 
-  // getAllStepData only reads haccp_step_data by organization_id.
-  // It does not use plan id and does not write, so it is safe next to
-  // getOrCreateActivePlan (which may insert a plan / seed diagram+product).
   try {
-    const [details, stepData] = await Promise.all([
-      getOrCreateActivePlan(organizationId, user.id, supabase),
-      getAllStepData(organizationId, supabase),
-    ]);
-    endTimer();
+    const details = await timeNav("PAGE", "getOrCreateActivePlan", nav, () =>
+      getOrCreateActivePlan(organizationId, user.id, supabase)
+    );
+    const needed = requiredStepDataIds(details.plan.currentStep);
+    const stepData =
+      needed.length === 0
+        ? {}
+        : await timeNav("PAGE", "getStepDataForSteps", nav, () =>
+            getStepDataForSteps(organizationId, needed, supabase)
+          );
+    endPage();
     return (
       <HaccpPlanWizard
         organizationId={organizationId}
@@ -33,7 +41,7 @@ export default async function HaccpPlanPage() {
       />
     );
   } catch (error) {
-    endTimer();
+    endPage();
     const message = error instanceof Error ? error.message : "Error al cargar el plan";
     return (
       <div className="px-6 py-10">

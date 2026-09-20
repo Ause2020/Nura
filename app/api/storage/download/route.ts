@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessionProfile, getSessionUser } from "@/lib/auth/cached-session";
+import { assertOrganizationAccess } from "@/lib/auth/require-permission";
 import { createPrivateDownloadUrl } from "@/lib/storage/download";
 import {
   parseDownloadJsonBody,
@@ -26,8 +27,19 @@ async function authorize() {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
   }
 
+  const supabase = await createClient();
+  try {
+    await assertOrganizationAccess({
+      supabase,
+      organizationId: profile.organization_id,
+      email: user.email,
+    });
+  } catch {
+    return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
+  }
+
   return {
-    supabase: await createClient(),
+    supabase,
     organizationId: profile.organization_id,
   };
 }

@@ -1,7 +1,9 @@
+import { organizationRecordIsAllowed } from "@/lib/access/constants";
+import { isPlatformAdmin } from "@/lib/access/platform-admin";
 import { getSessionProfile, getSessionUser } from "@/lib/auth/cached-session";
 import { hasPermission, type Permission } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
-import type { UserRole } from "@/types/database";
+import type { AccessStatus, UserRole } from "@/types/database";
 
 export class AuthzError extends Error {
   status: 401 | 403;
@@ -23,6 +25,32 @@ export type AuthorizedSession = {
   };
 };
 
+export async function assertOrganizationAccess(input: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  organizationId: string;
+  email?: string | null;
+}): Promise<void> {
+  if (isPlatformAdmin(input.email)) return;
+
+  const { data, error } = await input.supabase
+    .from("organizations")
+    .select("access_status, access_expires_at")
+    .eq("id", input.organizationId)
+    .maybeSingle();
+
+  if (
+    error ||
+    !organizationRecordIsAllowed(
+      data as {
+        access_status: AccessStatus;
+        access_expires_at: string | null;
+      } | null
+    )
+  ) {
+    throw new AuthzError(403, "Forbidden");
+  }
+}
+
 export async function requirePermission(
   permission: Permission
 ): Promise<AuthorizedSession> {
@@ -43,8 +71,15 @@ export async function requirePermission(
     throw new AuthzError(403, "Forbidden");
   }
 
+  const supabase = await createClient();
+  await assertOrganizationAccess({
+    supabase,
+    organizationId: profile.organization_id,
+    email: user.email,
+  });
+
   return {
-    supabase: await createClient(),
+    supabase,
     user,
     profile: {
       id: user.id,

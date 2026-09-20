@@ -897,6 +897,14 @@ export type Database = {
         Args: Record<PropertyKey, never>;
         Returns: Json;
       };
+      current_organization_access_allowed: {
+        Args: Record<PropertyKey, never>;
+        Returns: boolean;
+      };
+      create_org_notifications: {
+        Args: { p_rows: Json };
+        Returns: Database["public"]["Tables"]["notifications"]["Row"][];
+      };
     };
     Enums: {
       [_ in never]: never;

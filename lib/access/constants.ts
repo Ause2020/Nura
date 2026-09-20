@@ -37,3 +37,19 @@ export function resolveAccessStatus(
   }
   return status;
 }
+
+export type OrganizationAccessRecord = {
+  access_status: AccessStatus;
+  access_expires_at: string | null;
+};
+
+/** Fail closed. Same predicate as current_organization_access_allowed(). */
+export function organizationRecordIsAllowed(
+  org: OrganizationAccessRecord | null | undefined
+): boolean {
+  if (!org) return false;
+  return isAccessAllowed(
+    resolveAccessStatus(org.access_status, org.access_expires_at),
+    org.access_expires_at
+  );
+}
