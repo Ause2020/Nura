@@ -26,7 +26,9 @@
     "test:notification-tenant": "node --test scripts/verify-notification-tenant.mjs",
     "test:haccp-rbac-drift": "node --test scripts/verify-haccp-rbac-drift.mjs",
     "test:rbac-generator-grants": "node --test scripts/verify-rbac-generator-grants.mjs",
-    "test": "node --test scripts/verify-private-storage.mjs scripts/verify-signed-urls.mjs scripts/verify-spreadsheet-export.mjs scripts/verify-rbac.mjs scripts/verify-rate-limit.mjs scripts/verify-dashboard-perf.mjs scripts/verify-kiosk-perf.mjs scripts/verify-haccp-writes.mjs scripts/verify-rls-optimization.mjs scripts/verify-notifications-perf.mjs scripts/verify-ai-insights-perf.mjs scripts/verify-background-jobs.mjs scripts/verify-nav-phase-2a.mjs scripts/verify-haccp-p0.mjs scripts/verify-org-access-guard.mjs scripts/verify-org-access-enforcement.mjs scripts/verify-notification-tenant.mjs scripts/verify-haccp-rbac-drift.mjs scripts/verify-rbac-generator-grants.mjs"
+    "test:ssrf-logo": "node --test scripts/verify-ssrf-logo-url.mjs",
+    "test:internal-redirect": "node --test scripts/verify-internal-redirect.mjs",
+    "test": "node --test scripts/verify-private-storage.mjs scripts/verify-signed-urls.mjs scripts/verify-spreadsheet-export.mjs scripts/verify-rbac.mjs scripts/verify-rate-limit.mjs scripts/verify-dashboard-perf.mjs scripts/verify-kiosk-perf.mjs scripts/verify-haccp-writes.mjs scripts/verify-rls-optimization.mjs scripts/verify-notifications-perf.mjs scripts/verify-ai-insights-perf.mjs scripts/verify-background-jobs.mjs scripts/verify-nav-phase-2a.mjs scripts/verify-haccp-p0.mjs scripts/verify-org-access-guard.mjs scripts/verify-org-access-enforcement.mjs scripts/verify-notification-tenant.mjs scripts/verify-haccp-rbac-drift.mjs scripts/verify-rbac-generator-grants.mjs scripts/verify-ssrf-logo-url.mjs scripts/verify-internal-redirect.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",

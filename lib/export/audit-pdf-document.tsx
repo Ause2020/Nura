@@ -278,7 +278,7 @@ interface AuditPdfDocumentProps {
   items: AuditChecklistItem[];
   findings: AuditFinding[];
   organizationName: string;
-  organizationLogoUrl: string | null;
+  organizationLogoImage: { data: Uint8Array; format: "png" | "jpg" } | null;
   lang: ExportLang;
   auditorSignature?: string;
   orgRepSignature?: string;
@@ -289,7 +289,7 @@ export function AuditPdfDocument({
   items,
   findings,
   organizationName,
-  organizationLogoUrl,
+  organizationLogoImage,
   lang,
   auditorSignature,
   orgRepSignature,
@@ -322,8 +322,14 @@ export function AuditPdfDocument({
         {/* ── Header ── */}
         <View style={s.headerRow} fixed>
           <View>
-            {organizationLogoUrl && (
-              <Image src={organizationLogoUrl} style={s.logo} />
+            {organizationLogoImage && (
+              <Image
+                src={{
+                  data: Buffer.from(organizationLogoImage.data),
+                  format: organizationLogoImage.format,
+                }}
+                style={s.logo}
+              />
             )}
             <Text style={s.headerDate}>{organizationName}</Text>
           </View>

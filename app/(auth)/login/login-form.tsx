@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { sanitizeInternalRedirect } from "@/lib/auth/internal-redirect";
 import { ensureUserProfile, repairStuckOnboarding } from "@/lib/auth/session";
 
 function isValidEmail(email: string): boolean {
@@ -67,7 +68,7 @@ export function LoginForm() {
     const ready = profile?.onboarding_completed === true;
 
     if (redirectTo && ready) {
-      router.push(redirectTo);
+      router.push(sanitizeInternalRedirect(redirectTo, "/dashboard"));
     } else if (ready) {
       router.push("/dashboard");
     } else {

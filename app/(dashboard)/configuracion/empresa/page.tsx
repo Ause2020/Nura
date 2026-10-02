@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { CompanySettingsForm } from "@/components/settings/company-settings-form";
+import { getSessionUser } from "@/lib/auth/cached-session";
+import { resolveOrgLogoPublicUrl } from "@/lib/storage/org-logo";
 import { createClient } from "@/lib/supabase/server";
 import type { Organization, Profile } from "@/types/database";
-import { getSessionUser } from "@/lib/auth/cached-session";
 
 export default async function EmpresaSettingsPage() {
   const supabase = await createClient();
@@ -28,5 +29,12 @@ export default async function EmpresaSettingsPage() {
   const organization = orgData as Organization | null;
   if (!organization) redirect("/dashboard");
 
-  return <CompanySettingsForm organization={organization} />;
+  return (
+    <CompanySettingsForm
+      organization={{
+        ...organization,
+        logo_url: resolveOrgLogoPublicUrl(organization.logo_url, organization.id),
+      }}
+    />
+  );
 }

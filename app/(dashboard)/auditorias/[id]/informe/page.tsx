@@ -5,6 +5,7 @@ import { AuditReport } from "@/components/auditorias/audit-report";
 import { ModuleHeader } from "@/components/layout/header";
 import { Button } from "@/components/ui/button";
 import { requireOrganizationId } from "@/lib/haccp/auth";
+import { resolveOrgLogoPublicUrl } from "@/lib/storage/org-logo";
 import { createClient } from "@/lib/supabase/server";
 import type { Audit, AuditChecklistItem, AuditFinding } from "@/types/database";
 import { getSessionUser } from "@/lib/auth/cached-session";
@@ -75,7 +76,7 @@ export default async function InformeAuditoriaPage({ params }: PageProps) {
           findings={findings}
           organizationId={orgId}
           userId={user.id}
-          organizationLogoUrl={org?.logo_url ?? null}
+          organizationLogoUrl={resolveOrgLogoPublicUrl(org?.logo_url, orgId)}
         />
       </div>
     </>

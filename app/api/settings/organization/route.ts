@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { PERMISSIONS } from "@/lib/auth/permissions";
 import { authzResponse, requirePermission } from "@/lib/auth/require-permission";
+import { normalizeOrgLogoForWrite } from "@/lib/storage/org-logo";
 import type { EmployeesRange, Industry } from "@/types/database";
 
 export async function PATCH(request: Request) {
@@ -34,7 +35,14 @@ export async function PATCH(request: Request) {
         : [];
     }
     if (body.logo_url !== undefined) {
-      patch.logo_url = body.logo_url ? String(body.logo_url) : null;
+      try {
+        patch.logo_url = normalizeOrgLogoForWrite(
+          body.logo_url,
+          profile.organization_id
+        );
+      } catch {
+        return NextResponse.json({ error: "Logo inválido" }, { status: 400 });
+      }
     }
 
     if (Object.keys(patch).length === 0) {

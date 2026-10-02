@@ -5,6 +5,7 @@ import type { DocumentProps } from "@react-pdf/renderer";
 import { PERMISSIONS } from "@/lib/auth/permissions";
 import { authzResponse, requirePermission } from "@/lib/auth/require-permission";
 import { AuditPdfDocument } from "@/lib/export/audit-pdf-document";
+import { LOGOS_BUCKET, loadOrgLogoImageBytes } from "@/lib/storage/org-logo";
 import type { Audit, AuditChecklistItem, AuditFinding } from "@/types/database";
 import type { ExportLang } from "@/lib/export/labels";
 
@@ -71,18 +72,56 @@ export async function GET(req: Request, { params }: Params) {
   const findings = (findingsData ?? []) as AuditFinding[];
   const org = orgData as { name: string; logo_url: string | null } | null;
 
+  let organizationLogoImage: { data: Uint8Array; format: "png" | "jpg" } | null =
+    null;
+  try {
+    organizationLogoImage = await loadOrgLogoImageBytes(
+      org?.logo_url,
+      organizationId,
+      async (objectPath) => {
+        const { data, error } = await supabase.storage
+          .from(LOGOS_BUCKET)
+          .download(objectPath);
+        if (error || !data) return null;
+        return new Uint8Array(await data.arrayBuffer());
+      }
+    );
+  } catch {
+    organizationLogoImage = null;
+  }
+  if (!organizationLogoImage && org?.logo_url) {
+    console.warn("[nura:logo] skipped untrusted or invalid organization logo");
+  }
+
   const element = React.createElement(AuditPdfDocument, {
     audit,
     items,
     findings,
     organizationName: org?.name ?? "—",
-    organizationLogoUrl: org?.logo_url ?? null,
+    organizationLogoImage,
     lang,
     auditorSignature: auditorSign,
     orgRepSignature: repSign,
   }) as unknown as React.ReactElement<DocumentProps>;
 
-  const buffer = await renderToBuffer(element);
+  let buffer: Buffer;
+  try {
+    buffer = await renderToBuffer(element);
+  } catch (error) {
+    if (!organizationLogoImage) throw error;
+    console.warn("[nura:logo] pdf logo embed failed; rendering without logo");
+    const fallback = React.createElement(AuditPdfDocument, {
+      audit,
+      items,
+      findings,
+      organizationName: org?.name ?? "—",
+      organizationLogoImage: null,
+      lang,
+      auditorSignature: auditorSign,
+      orgRepSignature: repSign,
+    }) as unknown as React.ReactElement<DocumentProps>;
+    buffer = await renderToBuffer(fallback);
+  }
 
   const slug = audit.title
     .toLowerCase()

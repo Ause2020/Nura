@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { resolveOrgLogoPublicUrl } from "@/lib/storage/org-logo";
 import type { User } from "@supabase/supabase-js";
 import type { UserRole } from "@/types/database";
 
@@ -56,6 +57,10 @@ export const getSessionOrganizationBrand = cache(
       .maybeSingle();
 
     if (error || !data) return null;
-    return data as SessionOrganizationBrand;
+    const row = data as SessionOrganizationBrand;
+    return {
+      name: row.name,
+      logo_url: resolveOrgLogoPublicUrl(row.logo_url, organizationId),
+    };
   }
 );
