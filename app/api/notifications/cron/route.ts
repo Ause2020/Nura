@@ -54,7 +54,7 @@ export async function POST(request: Request) {
     await assertOrganizationAccess({
       supabase,
       organizationId: orgId,
-      email: user.email,
+      user,
     });
   } catch {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

@@ -95,7 +95,7 @@ export async function updateSession(request: NextRequest) {
   let onboardingCompleted = false;
   let accessAllowed = true;
   let userRole: UserRole | null = null;
-  const platformAdmin = isPlatformAdmin(user?.email);
+  const platformAdmin = isPlatformAdmin(user);
 
   if (user) {
     const endGates = startNavTimer("MW", "session gates", nav);

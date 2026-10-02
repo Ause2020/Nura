@@ -13,6 +13,7 @@ import {
   buildBucketKeys,
   classifyPath,
   consumeFixedWindow,
+  decisionWhenStoreUnavailable,
   DEFAULT_POLICIES,
   getClientIp,
   hashSubject,
@@ -310,6 +311,37 @@ test("every app/api route exists in the classifier inventory", () => {
     const policy = classifyPath(path, { hasUser: true });
     assert.ok(policy, `unclassified API route: ${rel}`);
   }
+});
+
+test("failClosed=true + store unavailable → DENY", () => {
+  const denied = decisionWhenStoreUnavailable(true, 60);
+  assert.equal(denied.allowed, false);
+  assert.equal(denied.retryAfter, 60);
+  assert.equal(DEFAULT_POLICIES.AUTH.failClosed, true);
+  assert.equal(
+    decisionWhenStoreUnavailable(DEFAULT_POLICIES.AUTH.failClosed, 30).allowed,
+    false
+  );
+});
+
+test("failClosed=false + store unavailable → ALLOW", () => {
+  const allowed = decisionWhenStoreUnavailable(false, 60);
+  assert.equal(allowed.allowed, true);
+  assert.equal(allowed.retryAfter, 0);
+  assert.equal(DEFAULT_POLICIES.ADMIN.failClosed, false);
+  assert.equal(
+    decisionWhenStoreUnavailable(DEFAULT_POLICIES.ADMIN.failClosed, 30).allowed,
+    true
+  );
+});
+
+test("enforce denies unavailable store when the policy is failClosed", () => {
+  const src = readFileSync(join(ROOT, "lib/rate-limit/enforce.ts"), "utf8");
+  assert.match(src, /decisionWhenStoreUnavailable\(\s*spec\.failClosed/);
+  assert.doesNotMatch(
+    src,
+    /if \(result\.unavailable\) \{\s*return \{ allowed: true/
+  );
 });
 
 test("Postgres migration is service_role only and fail-closed RPCs exist", () => {

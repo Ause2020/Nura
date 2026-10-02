@@ -1,4 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  missingProfileInsert,
+  type MissingProfileUser,
+} from "@/lib/auth/missing-profile";
 import type { UserProfileState } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -51,23 +55,9 @@ export async function fetchUserVisibleProfile(
   return profileFromRow(row);
 }
 
-function displayNameFromUser(user: {
-  email?: string;
-  user_metadata?: Record<string, unknown>;
-}): string {
-  return (
-    (typeof user.user_metadata?.full_name === "string" &&
-      user.user_metadata.full_name) ||
-    user.email?.split("@")[0] ||
-    "Usuario"
-  );
-}
-
-async function ensureProfileWithAdmin(user: {
-  id: string;
-  email?: string;
-  user_metadata?: Record<string, unknown>;
-}): Promise<UserProfileState | null> {
+async function ensureMissingProfileAsOperator(
+  user: MissingProfileUser
+): Promise<UserProfileState | null> {
   const admin = createAdminClient();
   if (!admin) return null;
 
@@ -81,11 +71,7 @@ async function ensureProfileWithAdmin(user: {
 
   const { data: inserted, error: insertError } = await admin
     .from("profiles")
-    .insert({
-      id: user.id,
-      full_name: displayNameFromUser(user),
-      role: "admin",
-    })
+    .insert(missingProfileInsert(user))
     .select(PROFILE_SELECT)
     .single();
 
@@ -118,7 +104,7 @@ export async function ensureUserProfileServer(
     return { ok: true, profile };
   }
 
-  await ensureProfileWithAdmin(user);
+  await ensureMissingProfileAsOperator(user);
   profile = await fetchUserVisibleProfile(supabase, user.id);
 
   if (profile) {

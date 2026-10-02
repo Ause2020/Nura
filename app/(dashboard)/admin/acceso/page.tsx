@@ -8,7 +8,7 @@ import { getSessionUser } from "@/lib/auth/cached-session";
 export default async function AdminAccesoPage() {
   const user = await getSessionUser();
 
-  if (!user?.email || !isPlatformAdmin(user.email)) {
+  if (!isPlatformAdmin(user)) {
     redirect("/dashboard");
   }
 

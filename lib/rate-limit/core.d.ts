@@ -32,6 +32,11 @@ export function isRateLimitDisabled(
   env?: NodeJS.ProcessEnv | Record<string, string | undefined>
 ): boolean;
 
+export function decisionWhenStoreUnavailable(
+  failClosed: boolean,
+  retryAfterSec: number
+): { allowed: boolean; retryAfter: number };
+
 export function getClientIp(
   headers: Headers | { get: (name: string) => string | null }
 ): string;

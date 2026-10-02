@@ -32,7 +32,7 @@ async function authorize() {
     await assertOrganizationAccess({
       supabase,
       organizationId: profile.organization_id,
-      email: user.email,
+      user,
     });
   } catch {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };

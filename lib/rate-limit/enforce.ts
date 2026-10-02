@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   buildBucketKeys,
   classifyPath,
+  decisionWhenStoreUnavailable,
   getClientIp,
   hashSubject,
   isCronAuthorized,
@@ -99,6 +100,18 @@ export async function enforceRateLimit(
   );
 
   if (result.unavailable) {
+    const fallback = decisionWhenStoreUnavailable(
+      spec.failClosed,
+      result.retryAfter || spec.windowSec
+    );
+    if (!fallback.allowed) {
+      return {
+        allowed: false,
+        policy,
+        retryAfter: fallback.retryAfter,
+        response: deniedResponse(fallback.retryAfter),
+      };
+    }
     return { allowed: true, policy, retryAfter: 0, response: null };
   }
 

@@ -1,5 +1,8 @@
 import { organizationRecordIsAllowed } from "@/lib/access/constants";
-import { isPlatformAdmin } from "@/lib/access/platform-admin";
+import {
+  isPlatformAdmin,
+  type PlatformAdminCandidate,
+} from "@/lib/access/platform-admin";
 import { getSessionProfile, getSessionUser } from "@/lib/auth/cached-session";
 import { hasPermission, type Permission } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
@@ -28,9 +31,9 @@ export type AuthorizedSession = {
 export async function assertOrganizationAccess(input: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   organizationId: string;
-  email?: string | null;
+  user: PlatformAdminCandidate;
 }): Promise<void> {
-  if (isPlatformAdmin(input.email)) return;
+  if (isPlatformAdmin(input.user)) return;
 
   const { data, error } = await input.supabase
     .from("organizations")
@@ -75,7 +78,7 @@ export async function requirePermission(
   await assertOrganizationAccess({
     supabase,
     organizationId: profile.organization_id,
-    email: user.email,
+    user,
   });
 
   return {

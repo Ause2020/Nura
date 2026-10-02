@@ -50,7 +50,7 @@ export async function DashboardSidebar() {
       userRole={userRole}
       organizationId={organizationId}
       userId={user?.id ?? null}
-      isPlatformAdmin={isPlatformAdmin(user?.email)}
+      isPlatformAdmin={isPlatformAdmin(user)}
     />
   );
 }

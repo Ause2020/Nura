@@ -28,7 +28,10 @@
     "test:rbac-generator-grants": "node --test scripts/verify-rbac-generator-grants.mjs",
     "test:ssrf-logo": "node --test scripts/verify-ssrf-logo-url.mjs",
     "test:internal-redirect": "node --test scripts/verify-internal-redirect.mjs",
-    "test": "node --test scripts/verify-private-storage.mjs scripts/verify-signed-urls.mjs scripts/verify-spreadsheet-export.mjs scripts/verify-rbac.mjs scripts/verify-rate-limit.mjs scripts/verify-dashboard-perf.mjs scripts/verify-kiosk-perf.mjs scripts/verify-haccp-writes.mjs scripts/verify-rls-optimization.mjs scripts/verify-notifications-perf.mjs scripts/verify-ai-insights-perf.mjs scripts/verify-background-jobs.mjs scripts/verify-nav-phase-2a.mjs scripts/verify-haccp-p0.mjs scripts/verify-org-access-guard.mjs scripts/verify-org-access-enforcement.mjs scripts/verify-notification-tenant.mjs scripts/verify-haccp-rbac-drift.mjs scripts/verify-rbac-generator-grants.mjs scripts/verify-ssrf-logo-url.mjs scripts/verify-internal-redirect.mjs"
+    "test:signup-provisioning": "node --test scripts/verify-signup-provisioning.mjs",
+    "test:profile-identity": "node --test scripts/verify-profile-identity.mjs",
+    "test:profile-fallbacks": "node --test scripts/verify-profile-fallbacks.mjs",
+    "test": "node --test scripts/verify-private-storage.mjs scripts/verify-signed-urls.mjs scripts/verify-spreadsheet-export.mjs scripts/verify-rbac.mjs scripts/verify-rate-limit.mjs scripts/verify-dashboard-perf.mjs scripts/verify-kiosk-perf.mjs scripts/verify-haccp-writes.mjs scripts/verify-rls-optimization.mjs scripts/verify-notifications-perf.mjs scripts/verify-ai-insights-perf.mjs scripts/verify-background-jobs.mjs scripts/verify-nav-phase-2a.mjs scripts/verify-haccp-p0.mjs scripts/verify-org-access-guard.mjs scripts/verify-org-access-enforcement.mjs scripts/verify-notification-tenant.mjs scripts/verify-haccp-rbac-drift.mjs scripts/verify-rbac-generator-grants.mjs scripts/verify-ssrf-logo-url.mjs scripts/verify-internal-redirect.mjs scripts/verify-signup-provisioning.mjs scripts/verify-profile-identity.mjs scripts/verify-profile-fallbacks.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",
@@ -46,6 +49,7 @@
     "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@types/node": "^20.17.19",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",

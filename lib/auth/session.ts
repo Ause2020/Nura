@@ -1,3 +1,4 @@
+import { missingProfileInsert } from "@/lib/auth/missing-profile";
 import { createClient } from "@/lib/supabase/client";
 
 export interface UserProfileState {
@@ -44,19 +45,9 @@ export async function ensureUserProfile(): Promise<UserProfileState | null> {
     console.error("profiles select:", error.message);
   }
 
-  const fullName =
-    (typeof user.user_metadata?.full_name === "string" &&
-      user.user_metadata.full_name) ||
-    user.email?.split("@")[0] ||
-    "Usuario";
-
   const { data: inserted, error: insertError } = await supabase
     .from("profiles")
-    .insert({
-      id: user.id,
-      full_name: fullName,
-      role: "admin",
-    })
+    .insert(missingProfileInsert(user))
     .select("id, organization_id, onboarding_completed, full_name, role")
     .single();
 
@@ -88,6 +79,19 @@ export async function completeOnboarding(input: {
   });
 
   if (error) {
+    if (error.message.includes("organization_not_provisioned")) {
+      return {
+        organizationId: null,
+        error:
+          "Tu cuenta aún no tiene una organización asignada. Contacta al equipo de Nura para activar el acceso.",
+      };
+    }
+    if (error.message.includes("organization_access_denied")) {
+      return {
+        organizationId: null,
+        error: "El acceso de tu organización no está activo.",
+      };
+    }
     return { organizationId: null, error: error.message };
   }
 

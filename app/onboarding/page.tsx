@@ -88,6 +88,10 @@ export default async function OnboardingPage() {
     redirect("/dashboard");
   }
 
+  if (!visibleProfile?.organization_id) {
+    redirect("/acceso-pendiente");
+  }
+
   return (
     <ToastProvider>
       <div className="min-h-screen bg-background">
