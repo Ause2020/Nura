@@ -49,7 +49,7 @@ export default async function AccesoPendientePage() {
 
   const messages: Record<AccessStatus, string> = {
     pending:
-      "Tu cuenta está registrada pero aún no tiene acceso activo. Nura activará tu acceso después de firmar el contrato.",
+      "Tu cuenta todavía no tiene una empresa activa. El equipo de Nura crea el acceso al contratar.",
     suspended:
       "El acceso de tu organización está suspendido. Contacta a tu representante de Nura.",
     expired:

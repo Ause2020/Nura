@@ -9,8 +9,9 @@ export const NODE_W = 176;
 export const NODE_H = 56;
 export const GRID = 24;
 export const SNAP = 8;
-export const STUB = 22;
-export const CORNER_R = 10;
+export const STUB = 28;
+export const AROUND = 44;
+export const CORNER_R = 12;
 
 const COL_GAP = 64;
 const ROW_GAP = 72;
@@ -84,6 +85,26 @@ function isHorizontal(side: DiagramSide) {
   return side === "left" || side === "right";
 }
 
+export function oppositeSide(side: DiagramSide): DiagramSide {
+  switch (side) {
+    case "top":
+      return "bottom";
+    case "bottom":
+      return "top";
+    case "left":
+      return "right";
+    case "right":
+      return "left";
+  }
+}
+
+const DIR: Record<DiagramSide, Point> = {
+  top: { x: 0, y: -1 },
+  bottom: { x: 0, y: 1 },
+  left: { x: -1, y: 0 },
+  right: { x: 1, y: 0 },
+};
+
 export function inferSides(
   source: DiagramNode,
   target: DiagramNode
@@ -113,6 +134,116 @@ export function inferSideFromPoint(node: DiagramNode, point: Point): DiagramSide
   return dy >= 0 ? "bottom" : "top";
 }
 
+function facingEachOther(
+  sourceSide: DiagramSide,
+  targetSide: DiagramSide,
+  a: Point,
+  b: Point
+) {
+  if (sourceSide === "right" && targetSide === "left") return a.x <= b.x;
+  if (sourceSide === "left" && targetSide === "right") return a.x >= b.x;
+  if (sourceSide === "bottom" && targetSide === "top") return a.y <= b.y;
+  if (sourceSide === "top" && targetSide === "bottom") return a.y >= b.y;
+  return false;
+}
+
+function outerCoord(side: DiagramSide, a: Point, b: Point) {
+  if (side === "right") return Math.max(a.x, b.x) + AROUND;
+  if (side === "left") return Math.min(a.x, b.x) - AROUND;
+  if (side === "bottom") return Math.max(a.y, b.y) + AROUND;
+  return Math.min(a.y, b.y) - AROUND;
+}
+
+function bridgeParallel(a: Point, sourceSide: DiagramSide, b: Point, targetSide: DiagramSide): Point[] {
+  const horizontal = isHorizontal(sourceSide);
+  if (facingEachOther(sourceSide, targetSide, a, b)) {
+    if (horizontal) {
+      const midX = (a.x + b.x) / 2;
+      return [
+        { x: midX, y: a.y },
+        { x: midX, y: b.y },
+      ];
+    }
+    const midY = (a.y + b.y) / 2;
+    return [
+      { x: a.x, y: midY },
+      { x: b.x, y: midY },
+    ];
+  }
+
+  if (sourceSide === targetSide) {
+    if (horizontal) {
+      const x = outerCoord(sourceSide, a, b);
+      return [
+        { x, y: a.y },
+        { x, y: b.y },
+      ];
+    }
+    const y = outerCoord(sourceSide, a, b);
+    return [
+      { x: a.x, y },
+      { x: b.x, y },
+    ];
+  }
+
+  if (horizontal) {
+    const x = sourceSide === "right" || targetSide === "right"
+      ? Math.max(a.x, b.x) + AROUND
+      : Math.min(a.x, b.x) - AROUND;
+    return [
+      { x, y: a.y },
+      { x, y: b.y },
+    ];
+  }
+  const y = sourceSide === "bottom" || targetSide === "bottom"
+    ? Math.max(a.y, b.y) + AROUND
+    : Math.min(a.y, b.y) - AROUND;
+  return [
+    { x: a.x, y },
+    { x: b.x, y },
+  ];
+}
+
+function bridgePerpendicular(
+  a: Point,
+  sourceSide: DiagramSide,
+  b: Point,
+  targetSide: DiagramSide
+): Point[] {
+  const sourceH = isHorizontal(sourceSide);
+  const primary = sourceH ? { x: b.x, y: a.y } : { x: a.x, y: b.y };
+  const sourceDir = DIR[sourceSide];
+  const targetDir = DIR[targetSide];
+  const leaveOk = sourceH
+    ? (primary.x - a.x) * sourceDir.x >= -1
+    : (primary.y - a.y) * sourceDir.y >= -1;
+  const arriveOk = sourceH
+    ? (b.y - primary.y) * -targetDir.y >= -1
+    : (b.x - primary.x) * -targetDir.x >= -1;
+
+  if (leaveOk && arriveOk) {
+    return [primary];
+  }
+
+  if (sourceH) {
+    const y = targetSide === "top"
+      ? Math.min(a.y, b.y) - AROUND
+      : Math.max(a.y, b.y) + AROUND;
+    return [
+      { x: a.x, y },
+      { x: b.x, y },
+    ];
+  }
+
+  const x = targetSide === "left"
+    ? Math.min(a.x, b.x) - AROUND
+    : Math.max(a.x, b.x) + AROUND;
+  return [
+    { x, y: a.y },
+    { x, y: b.y },
+  ];
+}
+
 function routePoints(
   start: Point,
   sourceSide: DiagramSide,
@@ -121,53 +252,139 @@ function routePoints(
 ): Point[] {
   const a1 = project(start, sourceSide, STUB);
   const b1 = project(end, targetSide, STUB);
-  const sameY = Math.abs(start.y - end.y) < 1.5;
-  const sameX = Math.abs(start.x - end.x) < 1.5;
+  const alignedH =
+    Math.abs(start.y - end.y) < 1.5 &&
+    isHorizontal(sourceSide) &&
+    isHorizontal(targetSide) &&
+    facingEachOther(sourceSide, targetSide, a1, b1);
+  const alignedV =
+    Math.abs(start.x - end.x) < 1.5 &&
+    !isHorizontal(sourceSide) &&
+    !isHorizontal(targetSide) &&
+    facingEachOther(sourceSide, targetSide, a1, b1);
 
-  if (sameY && isHorizontal(sourceSide) && isHorizontal(targetSide)) {
+  if (alignedH || alignedV) {
     return [start, end];
   }
-  if (sameX && !isHorizontal(sourceSide) && !isHorizontal(targetSide)) {
-    return [start, end];
+
+  const middle =
+    isHorizontal(sourceSide) === isHorizontal(targetSide)
+      ? bridgeParallel(a1, sourceSide, b1, targetSide)
+      : bridgePerpendicular(a1, sourceSide, b1, targetSide);
+
+  return [start, a1, ...middle, b1, end];
+}
+
+export function dragAxisOf(points: Point[]): "x" | "y" {
+  if (points.length < 2) return "y";
+  if (points.length === 2) {
+    const dx = Math.abs(points[1].x - points[0].x);
+    const dy = Math.abs(points[1].y - points[0].y);
+    return dx >= dy ? "y" : "x";
   }
-
-  const sh = isHorizontal(sourceSide);
-  const th = isHorizontal(targetSide);
-
-  if (sh && th) {
-    const midX = (a1.x + b1.x) / 2;
-    const canSplit =
-      (sourceSide === "right" && targetSide === "left" && a1.x <= b1.x) ||
-      (sourceSide === "left" && targetSide === "right" && a1.x >= b1.x);
-    if (canSplit) {
-      return [start, a1, { x: midX, y: a1.y }, { x: midX, y: b1.y }, b1, end];
+  let bestLen = -1;
+  let axis: "x" | "y" = "y";
+  const last = Math.max(1, points.length - 2);
+  for (let i = 1; i < last; i += 1) {
+    const dx = Math.abs(points[i + 1].x - points[i].x);
+    const dy = Math.abs(points[i + 1].y - points[i].y);
+    const len = Math.hypot(dx, dy);
+    if (len > bestLen) {
+      bestLen = len;
+      axis = dx >= dy ? "y" : "x";
     }
-    const outerX =
-      sourceSide === "right"
-        ? Math.max(a1.x, b1.x) + 28
-        : Math.min(a1.x, b1.x) - 28;
-    return [start, a1, { x: outerX, y: a1.y }, { x: outerX, y: b1.y }, b1, end];
   }
+  return axis;
+}
 
-  if (!sh && !th) {
-    const midY = (a1.y + b1.y) / 2;
-    const canSplit =
-      (sourceSide === "bottom" && targetSide === "top" && a1.y <= b1.y) ||
-      (sourceSide === "top" && targetSide === "bottom" && a1.y >= b1.y);
-    if (canSplit) {
-      return [start, a1, { x: a1.x, y: midY }, { x: b1.x, y: midY }, b1, end];
+function applyRouteOffset(points: Point[], offset: number): Point[] {
+  if (!offset || points.length < 2) return points;
+  const axis = dragAxisOf(points);
+
+  if (points.length === 2) {
+    const [start, end] = points;
+    if (axis === "y") {
+      return [
+        start,
+        { x: start.x, y: start.y + offset },
+        { x: end.x, y: end.y + offset },
+        end,
+      ];
     }
-    const outerY =
-      sourceSide === "bottom"
-        ? Math.max(a1.y, b1.y) + 28
-        : Math.min(a1.y, b1.y) - 28;
-    return [start, a1, { x: a1.x, y: outerY }, { x: b1.x, y: outerY }, b1, end];
+    return [
+      start,
+      { x: start.x + offset, y: start.y },
+      { x: end.x + offset, y: end.y },
+      end,
+    ];
   }
 
-  const corner = sh
-    ? { x: b1.x, y: a1.y }
-    : { x: a1.x, y: b1.y };
-  return [start, a1, corner, b1, end];
+  let index = 1;
+  let bestLen = -1;
+  const last = Math.max(1, points.length - 2);
+  for (let i = 1; i < last; i += 1) {
+    const len = Math.hypot(
+      points[i + 1].x - points[i].x,
+      points[i + 1].y - points[i].y
+    );
+    if (len > bestLen) {
+      bestLen = len;
+      index = i;
+    }
+  }
+
+  return points.map((point, i) => {
+    if (i !== index && i !== index + 1) return point;
+    return axis === "y"
+      ? { ...point, y: point.y + offset }
+      : { ...point, x: point.x + offset };
+  });
+}
+
+function resolvedSides(
+  source: DiagramNode,
+  target: DiagramNode,
+  sourceSide?: DiagramSide,
+  targetSide?: DiagramSide
+) {
+  return sourceSide && targetSide
+    ? { sourceSide, targetSide }
+    : inferSides(source, target);
+}
+
+export function edgePoints(
+  source: DiagramNode,
+  target: DiagramNode,
+  sourceSide?: DiagramSide,
+  targetSide?: DiagramSide,
+  offset = 0
+): Point[] {
+  const sides = resolvedSides(source, target, sourceSide, targetSide);
+  const base = routePoints(
+    nodeAnchor(source, sides.sourceSide),
+    sides.sourceSide,
+    nodeAnchor(target, sides.targetSide),
+    sides.targetSide
+  );
+  return applyRouteOffset(base, offset);
+}
+
+export function edgeDragInfo(
+  source: DiagramNode,
+  target: DiagramNode,
+  sourceSide?: DiagramSide,
+  targetSide?: DiagramSide,
+  offset = 0
+): { axis: "x" | "y"; handle: Point } {
+  const points = edgePoints(source, target, sourceSide, targetSide, offset);
+  const axis = dragAxisOf(points);
+  const mid = Math.floor(points.length / 2);
+  const a = points[Math.max(0, mid - 1)];
+  const b = points[Math.min(points.length - 1, mid)];
+  return {
+    axis,
+    handle: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+  };
 }
 
 function roundedPath(points: Point[], radius = CORNER_R): string {
@@ -212,50 +429,42 @@ export function edgePath(
   source: DiagramNode,
   target: DiagramNode,
   sourceSide?: DiagramSide,
-  targetSide?: DiagramSide
+  targetSide?: DiagramSide,
+  offset = 0
 ): string {
-  const sides =
-    sourceSide && targetSide
-      ? { sourceSide, targetSide }
-      : inferSides(source, target);
-  const start = nodeAnchor(source, sides.sourceSide);
-  const end = nodeAnchor(target, sides.targetSide);
-  return roundedPath(routePoints(start, sides.sourceSide, end, sides.targetSide));
+  return roundedPath(edgePoints(source, target, sourceSide, targetSide, offset));
 }
 
 export function previewPath(
   source: DiagramNode,
   sourceSide: DiagramSide,
-  cursor: Point
+  cursor: Point,
+  target?: DiagramNode,
+  targetSide?: DiagramSide
 ): string {
+  if (target && targetSide) {
+    return edgePath(source, target, sourceSide, targetSide);
+  }
   const start = nodeAnchor(source, sourceSide);
-  const targetSide = isHorizontal(sourceSide)
-    ? cursor.x >= start.x
-      ? "left"
-      : "right"
-    : cursor.y >= start.y
-      ? "top"
-      : "bottom";
-  return roundedPath(routePoints(start, sourceSide, cursor, targetSide));
+  const ghost: DiagramNode = {
+    id: "_preview",
+    type: "step",
+    label: "",
+    x: cursor.x - 8,
+    y: cursor.y - 8,
+  };
+  const side = targetSide ?? inferSideFromPoint(ghost, nodeCenter(source));
+  return roundedPath(routePoints(start, sourceSide, cursor, side));
 }
 
 export function edgeMidpoint(
   source: DiagramNode,
   target: DiagramNode,
   sourceSide?: DiagramSide,
-  targetSide?: DiagramSide
+  targetSide?: DiagramSide,
+  offset = 0
 ): Point {
-  const sides =
-    sourceSide && targetSide
-      ? { sourceSide, targetSide }
-      : inferSides(source, target);
-  const start = nodeAnchor(source, sides.sourceSide);
-  const end = nodeAnchor(target, sides.targetSide);
-  const points = routePoints(start, sides.sourceSide, end, sides.targetSide);
-  const mid = Math.floor(points.length / 2);
-  const a = points[Math.max(0, mid - 1)];
-  const b = points[Math.min(points.length - 1, mid)];
-  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  return edgeDragInfo(source, target, sourceSide, targetSide, offset).handle;
 }
 
 export function snapDrag(

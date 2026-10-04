@@ -5,6 +5,7 @@ import "@fontsource/plus-jakarta-sans/400.css";
 import "@fontsource/plus-jakarta-sans/500.css";
 import "@fontsource/plus-jakarta-sans/600.css";
 import "@fontsource/plus-jakarta-sans/700.css";
+import { AuthRecoveryRedirect } from "@/components/auth/auth-recovery-redirect";
 import "./globals.css";
 
 const playfair = Playfair_Display({
@@ -53,6 +54,7 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body className={`${playfair.variable} ${jetbrains.variable} font-sans antialiased`}>
+        <AuthRecoveryRedirect />
         {children}
       </body>
     </html>

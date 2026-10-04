@@ -38,7 +38,8 @@ export function LandingPricing() {
             Un plan. Todo incluido.
           </h2>
           <p className="mt-4 text-white/60 leading-relaxed">
-            Acceso activado tras contrato. Sin sorpresas, sin módulos ocultos.
+            Empresa, usuario y contraseña al contratar. Sin sorpresas, sin
+            módulos ocultos.
           </p>
         </Reveal>
 
@@ -69,8 +70,8 @@ export function LandingPricing() {
 
                 <div className="mt-8 pt-6 border-t border-white/10">
                   <p className="text-xs text-white/45 mb-4">
-                    El acceso se activa manualmente tras firmar contrato. Te
-                    entregamos credenciales en persona.
+                    Al firmar contrato, Nura crea tu empresa, usuario y
+                    contraseña inicial. Después puedes cambiarla.
                   </p>
                   <a
                     href="mailto:hola@nurahq.com?subject=Solicitud%20de%20acceso%20Nura"

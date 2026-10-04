@@ -83,8 +83,40 @@ export async function computeOperatorSignatureHash(input: {
 }
 
 export function parseFieldOptions(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.filter((v): v is string => typeof v === "string");
+  if (Array.isArray(raw)) {
+    return raw
+      .map((value) => (typeof value === "string" ? value : String(value ?? "")).trim())
+      .filter(Boolean);
+  }
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (Array.isArray(parsed)) return parseFieldOptions(parsed);
+    } catch {
+      // comma-separated fallback
+    }
+    return trimmed
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+export function formatFieldLimits(
+  field: Pick<ProductionFormField, "min_value" | "max_value" | "unit">
+): string | null {
+  const unit = field.unit?.trim();
+  const suffix = unit ? ` ${unit}` : "";
+  if (field.min_value != null && field.max_value != null) {
+    return `Límite: ${field.min_value} – ${field.max_value}${suffix}`;
+  }
+  if (field.min_value != null) return `Límite: mínimo ${field.min_value}${suffix}`;
+  if (field.max_value != null) return `Límite: máximo ${field.max_value}${suffix}`;
+  if (unit) return `Unidad: ${unit}`;
+  return null;
 }
 
 export interface FieldValuePayload {

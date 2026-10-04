@@ -5,10 +5,17 @@ import { cn } from "@/lib/utils";
 import type { DiagramNode, DiagramSide } from "@/lib/haccp-plan/types";
 
 const SIDE_STYLE: Record<DiagramSide, string> = {
-  top: "left-1/2 -top-1.5 -translate-x-1/2",
-  bottom: "left-1/2 -bottom-1.5 -translate-x-1/2",
-  left: "-left-1.5 top-1/2 -translate-y-1/2",
-  right: "-right-1.5 top-1/2 -translate-y-1/2",
+  top: "left-1/2 -top-2.5 -translate-x-1/2",
+  bottom: "left-1/2 -bottom-2.5 -translate-x-1/2",
+  left: "-left-2.5 top-1/2 -translate-y-1/2",
+  right: "-right-2.5 top-1/2 -translate-y-1/2",
+};
+
+const SIDE_HINT: Record<DiagramSide, string> = {
+  top: "Arriba",
+  bottom: "Abajo",
+  left: "Izquierda",
+  right: "Derecha",
 };
 
 const TYPE_LABEL: Record<DiagramNode["type"], string> = {
@@ -24,7 +31,9 @@ interface DiagramNodeCardProps {
   node: DiagramNode;
   selected: boolean;
   connecting: boolean;
+  dropTarget: boolean;
   activeSide: DiagramSide | null;
+  hoverSide: DiagramSide | null;
   showHandles: boolean;
   zoom: number;
   panX: number;
@@ -33,13 +42,17 @@ interface DiagramNodeCardProps {
   onPointerDown: (event: React.PointerEvent) => void;
   onHandlePointerDown: (side: DiagramSide, event: React.PointerEvent) => void;
   onHandlePointerUp: (side: DiagramSide, event: React.PointerEvent) => void;
+  onHandlePointerEnter: (side: DiagramSide) => void;
+  onHandlePointerLeave: (side: DiagramSide) => void;
 }
 
 export function DiagramNodeCard({
   node,
   selected,
   connecting,
+  dropTarget,
   activeSide,
+  hoverSide,
   showHandles,
   zoom,
   panX,
@@ -48,6 +61,8 @@ export function DiagramNodeCard({
   onPointerDown,
   onHandlePointerDown,
   onHandlePointerUp,
+  onHandlePointerEnter,
+  onHandlePointerLeave,
 }: DiagramNodeCardProps) {
   const { w, h } = nodeSize(node.type);
   const isTerminus = node.type === "start" || node.type === "end";
@@ -59,7 +74,7 @@ export function DiagramNodeCard({
       data-node-id={node.id}
       className={cn(
         "absolute select-none",
-        selected || connecting ? "z-20" : "z-10"
+        selected || connecting || dropTarget ? "z-20" : "z-10"
       )}
       style={{
         width: w,
@@ -79,8 +94,16 @@ export function DiagramNodeCard({
           <polygon
             points="76,5 147,76 76,147 5,76"
             fill="#F4F7FF"
-            stroke={selected ? "#1B4332" : connecting ? "#40916C" : "#3B6FD4"}
-            strokeWidth={selected || connecting ? 2.4 : 1.75}
+            stroke={
+              selected
+                ? "#1B4332"
+                : dropTarget
+                  ? "#40916C"
+                  : connecting
+                    ? "#40916C"
+                    : "#3B6FD4"
+            }
+            strokeWidth={selected || connecting || dropTarget ? 2.6 : 1.75}
           />
         </svg>
       )}
@@ -92,11 +115,17 @@ export function DiagramNodeCard({
           isDecision && "bg-transparent",
           node.type === "start" && "bg-white border-[1.5px] border-forest",
           node.type === "end" && "bg-forest border-[1.5px] border-forest",
-          node.type === "step" && "bg-white border border-border shadow-[0_1px_2px_rgba(22,18,16,0.04)]",
-          node.type === "pcc" && "bg-white border border-red-200 shadow-[0_1px_2px_rgba(22,18,16,0.04)]",
-          node.type === "allergen" && "bg-white border border-amber-200 shadow-[0_1px_2px_rgba(22,18,16,0.04)]",
+          node.type === "step" &&
+            "bg-white border border-border shadow-[0_1px_2px_rgba(22,18,16,0.04)]",
+          node.type === "pcc" &&
+            "bg-white border border-red-200 shadow-[0_1px_2px_rgba(22,18,16,0.04)]",
+          node.type === "allergen" &&
+            "bg-white border border-amber-200 shadow-[0_1px_2px_rgba(22,18,16,0.04)]",
           selected && !isDecision && "shadow-[0_0_0_2px_#1B4332]",
-          connecting && !selected && !isDecision && "shadow-[0_0_0_2px_#40916C]",
+          (connecting || dropTarget) &&
+            !selected &&
+            !isDecision &&
+            "shadow-[0_0_0_2px_#40916C]"
         )}
       >
         {node.type === "step" && (
@@ -142,34 +171,56 @@ export function DiagramNodeCard({
             onChange={(event) => onLabelChange(event.target.value)}
             className={cn(
               "w-full bg-transparent text-center font-medium outline-none pointer-events-auto leading-tight",
-              isTerminus ? "text-[11px] tracking-[0.12em] uppercase" : "text-[11px]",
-              node.type === "end" ? "text-white placeholder:text-white/50" : "text-ink placeholder:text-ink-faint"
+              isTerminus
+                ? "text-[11px] tracking-[0.12em] uppercase"
+                : "text-[11px]",
+              node.type === "end"
+                ? "text-white placeholder:text-white/50"
+                : "text-ink placeholder:text-ink-faint"
             )}
           />
         )}
       </div>
 
-      {SIDES.map((side) => (
-        <button
-          key={side}
-          type="button"
-          data-handle="1"
-          data-side={side}
-          title={`Conectar por ${side}`}
-          className={cn(
-            "absolute h-3 w-3 rounded-full border-[1.5px] bg-white z-20 transition-all duration-150",
-            SIDE_STYLE[side],
-            showHandles || connecting || selected
-              ? "opacity-100 scale-100"
-              : "opacity-0 scale-75",
-            activeSide === side
-              ? "border-sage bg-sage scale-125"
-              : "border-forest hover:bg-sage-light hover:border-sage"
-          )}
-          onPointerDown={(event) => onHandlePointerDown(side, event)}
-          onPointerUp={(event) => onHandlePointerUp(side, event)}
-        />
-      ))}
+      {SIDES.map((side) => {
+        const active = activeSide === side;
+        const hovered = hoverSide === side;
+        return (
+          <button
+            key={side}
+            type="button"
+            data-handle="1"
+            data-side={side}
+            title={`Conectar por ${SIDE_HINT[side]}`}
+            aria-label={`Puerto ${SIDE_HINT[side]}`}
+            className={cn(
+              "absolute z-30 flex items-center justify-center rounded-full transition-all duration-150",
+              SIDE_STYLE[side],
+              "h-5 w-5",
+              showHandles || connecting || selected || dropTarget
+                ? "opacity-100 scale-100"
+                : "opacity-0 scale-75 pointer-events-none"
+            )}
+            onPointerDown={(event) => onHandlePointerDown(side, event)}
+            onPointerUp={(event) => onHandlePointerUp(side, event)}
+            onPointerEnter={() => onHandlePointerEnter(side)}
+            onPointerLeave={() => onHandlePointerLeave(side)}
+          >
+            <span
+              className={cn(
+                "h-2.5 w-2.5 rounded-full border-2 bg-white shadow-sm",
+                active
+                  ? "border-sage bg-sage scale-125"
+                  : hovered
+                    ? "border-sage bg-sage-light scale-110"
+                    : dropTarget
+                      ? "border-sage"
+                      : "border-forest"
+              )}
+            />
+          </button>
+        );
+      })}
     </div>
   );
 }

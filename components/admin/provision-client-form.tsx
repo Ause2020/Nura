@@ -75,7 +75,7 @@ export function ProvisionClientForm({ onCreated }: ProvisionClientFormProps) {
     }
 
     setSuccess(
-      `Cliente creado: ${data.organizationName} · ${data.email} · contraseña entregada al cliente`
+      `Cliente creado: ${data.organizationName} · ${data.email}. Entregá estas credenciales para el primer acceso.`
     );
     setGeneratedPassword(generatePassword());
     (e.target as HTMLFormElement).reset();

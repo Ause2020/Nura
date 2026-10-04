@@ -7,6 +7,7 @@ import { Input, Textarea } from "@/components/ui/input";
 import { CHECKLIST_OPTIONS } from "@/lib/production-records/constants";
 import {
   buildTemplateSnapshot,
+  formatFieldLimits,
   isChecklistDeviation,
   isNumberOutOfRange,
   parseFieldOptions,
@@ -43,6 +44,7 @@ export function FieldMonitorForm({
   const [monitorName, setMonitorName] = useState("");
   const [lotNumber, setLotNumber] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
+  const [multiValues, setMultiValues] = useState<Record<string, string[]>>({});
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -52,12 +54,24 @@ export function FieldMonitorForm({
     setValues((prev) => ({ ...prev, [id]: value }));
   }
 
+  function toggleMulti(id: string, option: string) {
+    setMultiValues((prev) => {
+      const current = prev[id] ?? [];
+      return {
+        ...prev,
+        [id]: current.includes(option)
+          ? current.filter((item) => item !== option)
+          : [...current, option],
+      };
+    });
+  }
+
   function buildPayload(): FieldValuePayload[] {
     return fields
       .filter((f) => f.field_type !== "photo")
       .map((field) => {
-        const raw = values[field.id] ?? "";
         if (field.field_type === "number") {
+          const raw = values[field.id] ?? "";
           const num = raw === "" ? null : Number(raw);
           return {
             field_id: field.id,
@@ -68,6 +82,18 @@ export function FieldMonitorForm({
               num != null && isNumberOutOfRange(num, field.min_value, field.max_value),
           };
         }
+        if (field.field_type === "multiselect") {
+          const selected = multiValues[field.id] ?? [];
+          return {
+            field_id: field.id,
+            field_label: field.label,
+            field_type: field.field_type,
+            value_json: selected,
+            value_text: selected.join(", ") || null,
+            is_out_of_range: false,
+          };
+        }
+        const raw = values[field.id] ?? "";
         return {
           field_id: field.id,
           field_label: field.label,
@@ -84,12 +110,13 @@ export function FieldMonitorForm({
       setError("Indica tu nombre para firmar el registro.");
       return;
     }
-    const missing = fields.filter(
-      (f) =>
-        f.required &&
-        f.field_type !== "photo" &&
-        !(values[f.id] ?? "").trim()
-    );
+    const missing = fields.filter((f) => {
+      if (!f.required || f.field_type === "photo") return false;
+      if (f.field_type === "multiselect") {
+        return (multiValues[f.id] ?? []).length === 0;
+      }
+      return !(values[f.id] ?? "").trim();
+    });
     if (missing.length > 0) {
       setError(`Falta completar: ${missing.map((f) => f.label).join(", ")}`);
       return;
@@ -144,7 +171,16 @@ export function FieldMonitorForm({
         <h1 className="font-display text-lg font-semibold mt-0.5">
           {template.name}
         </h1>
-        {label && <p className="text-xs text-white/70 mt-1">{label}</p>}
+        {(label || template.area) && (
+          <p className="text-xs text-white/70 mt-1">
+            {[label, template.area].filter(Boolean).join(" · ")}
+          </p>
+        )}
+        {template.description && (
+          <p className="text-xs text-white/65 mt-2 leading-relaxed">
+            {template.description}
+          </p>
+        )}
       </header>
 
       <form onSubmit={(e) => void onSubmit(e)} className="max-w-md mx-auto px-4 py-5 space-y-5">
@@ -175,17 +211,32 @@ export function FieldMonitorForm({
               .filter((f) => f.field_type !== "photo")
               .map((field) => {
                 const value = values[field.id] ?? "";
+                const options = parseFieldOptions(field.options);
+                const limits = formatFieldLimits(field);
+                const selectedMulti = multiValues[field.id] ?? [];
                 const numberOut =
                   field.field_type === "number" &&
                   value !== "" &&
                   isNumberOutOfRange(Number(value), field.min_value, field.max_value);
                 return (
-                  <label key={field.id} className="block text-xs text-ink-light space-y-1">
-                    <span>
+                  <div key={field.id} className="block text-xs text-ink-light space-y-1.5">
+                    <p className="font-medium text-ink">
                       {field.label}
                       {field.required ? " *" : ""}
-                      {field.unit ? ` (${field.unit})` : ""}
-                    </span>
+                    </p>
+                    {limits && (
+                      <p className="text-[11px] text-ink-faint">{limits}</p>
+                    )}
+                    {field.field_type === "select" && options.length > 0 && (
+                      <p className="text-[11px] text-ink-faint">
+                        Opciones: {options.join(" · ")}
+                      </p>
+                    )}
+                    {field.field_type === "multiselect" && options.length > 0 && (
+                      <p className="text-[11px] text-ink-faint">
+                        Puedes marcar varias: {options.join(" · ")}
+                      </p>
+                    )}
                     {field.field_type === "number" ? (
                       <Input
                         type="number"
@@ -195,18 +246,56 @@ export function FieldMonitorForm({
                         className={cn(numberOut && "border-danger")}
                       />
                     ) : field.field_type === "select" ? (
-                      <select
-                        value={value}
-                        onChange={(e) => setField(field.id, e.target.value)}
-                        className="w-full h-9 px-3 text-sm border border-border rounded-md bg-white"
-                      >
-                        <option value="">Selecciona</option>
-                        {parseFieldOptions(field.options).map((opt) => (
-                          <option key={opt} value={opt}>
-                            {opt}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="grid grid-cols-1 gap-2">
+                        {options.length === 0 ? (
+                          <p className="text-[11px] text-amber">
+                            Esta pregunta no tiene opciones configuradas.
+                          </p>
+                        ) : (
+                          options.map((opt) => (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => setField(field.id, opt)}
+                              className={cn(
+                                "min-h-9 px-3 text-sm rounded-md border text-left",
+                                value === opt
+                                  ? "border-forest bg-sage-light text-forest font-medium"
+                                  : "border-border bg-white text-ink"
+                              )}
+                            >
+                              {opt}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    ) : field.field_type === "multiselect" ? (
+                      <div className="flex flex-wrap gap-2">
+                        {options.length === 0 ? (
+                          <p className="text-[11px] text-amber">
+                            Esta pregunta no tiene opciones configuradas.
+                          </p>
+                        ) : (
+                          options.map((opt) => {
+                            const selected = selectedMulti.includes(opt);
+                            return (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() => toggleMulti(field.id, opt)}
+                                className={cn(
+                                  "min-h-9 px-3 text-sm rounded-md border",
+                                  selected
+                                    ? "border-forest bg-sage-light text-forest font-medium"
+                                    : "border-border bg-white text-ink"
+                                )}
+                              >
+                                {opt}
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
                     ) : field.field_type === "checklist" ? (
                       <div className="flex gap-2">
                         {CHECKLIST_OPTIONS.map((opt) => (
@@ -217,7 +306,9 @@ export function FieldMonitorForm({
                             className={cn(
                               "flex-1 h-9 text-sm rounded-md border",
                               value === opt.value
-                                ? "border-forest bg-sage-light text-forest"
+                                ? opt.value === "no"
+                                  ? "border-danger bg-red-50 text-danger"
+                                  : "border-forest bg-sage-light text-forest"
                                 : "border-border bg-white"
                             )}
                           >
@@ -238,9 +329,12 @@ export function FieldMonitorForm({
                       />
                     )}
                     {numberOut && (
-                      <span className="text-danger">Fuera de límite</span>
+                      <span className="text-danger">
+                        Fuera de límite
+                        {limits ? ` (${limits.replace("Límite: ", "")})` : ""}
+                      </span>
                     )}
-                  </label>
+                  </div>
                 );
               })}
           </fieldset>

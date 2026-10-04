@@ -19,6 +19,7 @@ import { submitProductionRecord } from "@/lib/production-records/submit";
 import {
   buildTemplateSnapshot,
   computeOperatorSignatureHash,
+  formatFieldLimits,
   isChecklistDeviation,
   isNumberOutOfRange,
   parseFieldOptions,
@@ -364,6 +365,7 @@ export function ProductionFormExecutor({
             {section.fields.map((field) => {
               const state = values[field.id] ?? {};
               const options = parseFieldOptions(field.options);
+              const limits = formatFieldLimits(field);
 
               return (
                 <div key={field.id} className="space-y-1">
@@ -373,6 +375,19 @@ export function ProductionFormExecutor({
                       <span className="text-danger ml-0.5">*</span>
                     )}
                   </p>
+                  {limits && (
+                    <p className="text-[11px] text-ink-faint">{limits}</p>
+                  )}
+                  {(field.field_type === "select" ||
+                    field.field_type === "multiselect") &&
+                    options.length > 0 && (
+                      <p className="text-[11px] text-ink-faint">
+                        {field.field_type === "multiselect"
+                          ? "Puedes marcar varias: "
+                          : "Opciones: "}
+                        {options.join(" · ")}
+                      </p>
+                    )}
 
                   {field.field_type === "text" && (
                     <Input
@@ -410,16 +425,11 @@ export function ProductionFormExecutor({
                           }));
                         }}
                       />
-                      {field.unit && (
-                        <p className="text-xs text-ink-faint">{field.unit}</p>
-                      )}
                       {state.outOfRange && (
                         <div className="flex items-center gap-1.5 text-xs text-danger">
                           <AlertTriangle className="h-3.5 w-3.5" />
                           Valor fuera de rango
-                          {field.min_value != null || field.max_value != null
-                            ? ` (${field.min_value ?? "—"} – ${field.max_value ?? "—"})`
-                            : ""}
+                          {limits ? ` (${limits.replace("Límite: ", "")})` : ""}
                         </div>
                       )}
                     </div>

@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  ArrowLeftRight,
+  Copy,
   Maximize2,
   Minus,
   Plus,
@@ -11,7 +13,9 @@ import {
 import { DiagramNodeCard } from "@/components/haccp-plan/diagram/diagram-node";
 import {
   GRID,
+  SIDES,
   contentBounds,
+  edgeDragInfo,
   edgeMidpoint,
   edgePath,
   inferSideFromPoint,
@@ -81,6 +85,10 @@ export function FlowDiagramEditor({
   const [selection, setSelection] = useState<Selection>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
+  const [hoverHandle, setHoverHandle] = useState<{
+    nodeId: string;
+    side: DiagramSide;
+  } | null>(null);
   const [connectFrom, setConnectFrom] = useState<{
     nodeId: string;
     side: DiagramSide;
@@ -97,6 +105,12 @@ export function FlowDiagramEditor({
     startY: number;
     startClientX: number;
     startClientY: number;
+  } | null>(null);
+  const [draggingEdge, setDraggingEdge] = useState<{
+    id: string;
+    axis: "x" | "y";
+    startOffset: number;
+    startWorld: number;
   } | null>(null);
   const [panning, setPanning] = useState<{
     x: number;
@@ -206,13 +220,20 @@ export function FlowDiagramEditor({
     const target = diagram.nodes.find((node) => node.id === targetId);
     if (!source || !target) return;
     const inferred = inferSides(source, target);
+    const fromSide = sourceSide ?? inferred.sourceSide;
+    const toSide = targetSide ?? inferred.targetSide;
     const outgoing = diagram.edges.filter((edge) => edge.source === sourceId);
     const exists = diagram.edges.some(
-      (item) => item.source === sourceId && item.target === targetId
+      (item) =>
+        item.source === sourceId &&
+        item.target === targetId &&
+        (item.sourceSide ?? inferred.sourceSide) === fromSide &&
+        (item.targetSide ?? inferred.targetSide) === toSide
     );
     if (exists) {
       setConnectFrom(null);
       setCursorWorld(null);
+      setHoverHandle(null);
       return;
     }
     const edge: DiagramEdge = {
@@ -220,8 +241,8 @@ export function FlowDiagramEditor({
       source: sourceId,
       target: targetId,
       type: "step",
-      sourceSide: sourceSide ?? inferred.sourceSide,
-      targetSide: targetSide ?? inferred.targetSide,
+      sourceSide: fromSide,
+      targetSide: toSide,
       label:
         source.type === "decision"
           ? outgoing.length === 0
@@ -234,7 +255,70 @@ export function FlowDiagramEditor({
     patchActive({ edges: [...diagram.edges, edge] });
     setConnectFrom(null);
     setCursorWorld(null);
+    setHoverHandle(null);
     setSelection({ kind: "edge", id: edge.id });
+  }
+
+  function reverseEdge(edgeId: string) {
+    if (!diagram) return;
+    patchActive({
+      edges: diagram.edges.map((edge) =>
+        edge.id === edgeId
+          ? {
+              ...edge,
+              source: edge.target,
+              target: edge.source,
+              sourceSide: edge.targetSide,
+              targetSide: edge.sourceSide,
+            }
+          : edge
+      ),
+    });
+  }
+
+  function setEdgeOffset(edgeId: string, offset: number, persist = true) {
+    const live = workingRef.current.find((item) => item.id === activeId);
+    if (!live) return;
+    patchActive(
+      {
+        edges: live.edges.map((edge) =>
+          edge.id === edgeId ? { ...edge, offset } : edge
+        ),
+      },
+      persist
+    );
+  }
+
+  function setEdgeSide(
+    edgeId: string,
+    end: "source" | "target",
+    side: DiagramSide
+  ) {
+    if (!diagram) return;
+    patchActive({
+      edges: diagram.edges.map((edge) =>
+        edge.id === edgeId
+          ? end === "source"
+            ? { ...edge, sourceSide: side }
+            : { ...edge, targetSide: side }
+          : edge
+      ),
+    });
+  }
+
+  function duplicateSelection() {
+    if (!diagram || selection?.kind !== "node") return;
+    const node = diagram.nodes.find((item) => item.id === selection.id);
+    if (!node) return;
+    const copy: DiagramNode = {
+      ...node,
+      id: crypto.randomUUID(),
+      x: node.x + 32,
+      y: node.y + 32,
+      label: node.label,
+    };
+    patchActive({ nodes: [...diagram.nodes, copy] });
+    setSelection({ kind: "node", id: copy.id });
   }
 
   function generate() {
@@ -348,7 +432,31 @@ export function FlowDiagramEditor({
       if (event.key === "Escape") {
         setConnectFrom(null);
         setCursorWorld(null);
+        setHoverHandle(null);
         setSelection(null);
+      }
+      if ((event.key === "c" || event.key === "C") && currentSelection?.kind === "node") {
+        setConnectFrom({ nodeId: currentSelection.id, side: "bottom" });
+      }
+      if ((event.key === "d" || event.key === "D") && currentSelection?.kind === "node" && !event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        const node = current.nodes.find((item) => item.id === currentSelection.id);
+        if (node) {
+          const copy = {
+            ...node,
+            id: crypto.randomUUID(),
+            x: node.x + 32,
+            y: node.y + 32,
+          };
+          commitWorking(
+            workingRef.current.map((item) =>
+              item.id === current.id
+                ? { ...item, nodes: [...current.nodes, copy] }
+                : item
+            )
+          );
+          setSelection({ kind: "node", id: copy.id });
+        }
       }
       if (
         (event.key === "Delete" || event.key === "Backspace") &&
@@ -438,7 +546,8 @@ export function FlowDiagramEditor({
             source,
             target,
             selectedEdge.sourceSide,
-            selectedEdge.targetSide
+            selectedEdge.targetSide,
+            selectedEdge.offset ?? 0
           );
         })()
       : null;
@@ -599,8 +708,16 @@ export function FlowDiagramEditor({
       <div
         ref={canvasRef}
         className={cn(
-          "relative h-[600px] overflow-hidden rounded-xl border border-border",
-          panning ? "cursor-grabbing" : "cursor-grab"
+          "relative h-[640px] overflow-hidden rounded-xl border border-border",
+          connectFrom
+            ? "cursor-crosshair"
+            : draggingEdge
+              ? draggingEdge.axis === "y"
+                ? "cursor-ns-resize"
+                : "cursor-ew-resize"
+              : panning
+                ? "cursor-grabbing"
+                : "cursor-grab"
         )}
         style={{
           backgroundColor: "#F7F4EE",
@@ -617,16 +734,26 @@ export function FlowDiagramEditor({
             x: event.clientX - diagram.panX,
             y: event.clientY - diagram.panY,
           });
-          setSelection(null);
+          if (!connectFrom) setSelection(null);
           if (!connectFrom) {
             setConnectFrom(null);
             setCursorWorld(null);
+            setHoverHandle(null);
           }
           event.currentTarget.setPointerCapture(event.pointerId);
         }}
         onPointerMove={(event) => {
           const world = toWorld(event.clientX, event.clientY);
           if (connectFrom) setCursorWorld(world);
+          if (draggingEdge) {
+            interactingRef.current = true;
+            const current =
+              draggingEdge.axis === "y" ? world.y : world.x;
+            const raw =
+              draggingEdge.startOffset + (current - draggingEdge.startWorld);
+            const snapped = Math.round(raw / (GRID / 2)) * (GRID / 2);
+            setEdgeOffset(draggingEdge.id, snapped, false);
+          }
           if (panning) {
             interactingRef.current = true;
             patchActive(
@@ -680,6 +807,7 @@ export function FlowDiagramEditor({
             } else if (!handle) {
               setConnectFrom(null);
               setCursorWorld(null);
+              setHoverHandle(null);
             }
           }
           if (interactingRef.current) {
@@ -688,12 +816,23 @@ export function FlowDiagramEditor({
           }
           setPanning(null);
           setDragging(null);
+          setDraggingEdge(null);
           setGuides([]);
         }}
         onPointerLeave={() => {
           if (!connectFrom) setHoveredNodeId(null);
         }}
       >
+        {connectFrom && (
+          <div className="absolute left-3 top-3 z-40 rounded-md border border-sage/40 bg-white/95 px-3 py-2 shadow-sm">
+            <p className="text-[11px] font-medium text-forest">
+              Conectando · suelta en cualquier lado
+            </p>
+            <p className="text-[11px] text-ink-light">
+              Suelta en cualquier lado de otro bloque. Esc cancela.
+            </p>
+          </div>
+        )}
         <svg className="absolute inset-0 w-full h-full">
           <defs>
             <marker
@@ -750,8 +889,28 @@ export function FlowDiagramEditor({
               const source = diagram.nodes.find((node) => node.id === edge.source);
               const target = diagram.nodes.find((node) => node.id === edge.target);
               if (!source || !target) return null;
-              const path = edgePath(source, target, edge.sourceSide, edge.targetSide);
-              const mid = edgeMidpoint(source, target, edge.sourceSide, edge.targetSide);
+              const offset = edge.offset ?? 0;
+              const path = edgePath(
+                source,
+                target,
+                edge.sourceSide,
+                edge.targetSide,
+                offset
+              );
+              const mid = edgeMidpoint(
+                source,
+                target,
+                edge.sourceSide,
+                edge.targetSide,
+                offset
+              );
+              const drag = edgeDragInfo(
+                source,
+                target,
+                edge.sourceSide,
+                edge.targetSide,
+                offset
+              );
               const active =
                 selectedEdge?.id === edge.id || hoveredEdgeId === edge.id;
               return (
@@ -760,13 +919,22 @@ export function FlowDiagramEditor({
                     d={path}
                     fill="none"
                     stroke="transparent"
-                    strokeWidth="16"
-                    className="cursor-pointer"
+                    strokeWidth="18"
+                    className={drag.axis === "y" ? "cursor-ns-resize" : "cursor-ew-resize"}
                     data-edge="1"
                     onPointerDown={(event) => {
                       event.stopPropagation();
+                      const world = toWorld(event.clientX, event.clientY);
                       setSelection({ kind: "edge", id: edge.id });
                       setConnectFrom(null);
+                      setCursorWorld(null);
+                      setDraggingEdge({
+                        id: edge.id,
+                        axis: drag.axis,
+                        startOffset: offset,
+                        startWorld: drag.axis === "y" ? world.y : world.x,
+                      });
+                      canvasRef.current?.setPointerCapture(event.pointerId);
                     }}
                     onPointerEnter={() => setHoveredEdgeId(edge.id)}
                     onPointerLeave={() => setHoveredEdgeId(null)}
@@ -775,10 +943,23 @@ export function FlowDiagramEditor({
                     d={path}
                     fill="none"
                     stroke={active ? "#40916C" : "#1B4332"}
-                    strokeWidth={active ? 2.25 : 1.6}
+                    strokeWidth={active ? 2.6 : 1.7}
                     markerEnd={active ? "url(#haccp-arrow-active)" : "url(#haccp-arrow)"}
                     className="pointer-events-none"
                   />
+                  {active ? (
+                    <rect
+                      x={drag.handle.x - 7}
+                      y={drag.handle.y - 7}
+                      width={14}
+                      height={14}
+                      rx={3}
+                      fill="#FFFFFF"
+                      stroke="#40916C"
+                      strokeWidth="1.5"
+                      className="pointer-events-none"
+                    />
+                  ) : null}
                   {edge.label ? (
                     <g transform={`translate(${mid.x} ${mid.y})`}>
                       <rect
@@ -809,13 +990,29 @@ export function FlowDiagramEditor({
             {connectFrom && cursorWorld && (() => {
               const source = diagram.nodes.find((node) => node.id === connectFrom.nodeId);
               if (!source) return null;
+              const hoverNode = hoverHandle
+                ? diagram.nodes.find((node) => node.id === hoverHandle.nodeId)
+                : hoveredNodeId
+                  ? diagram.nodes.find((node) => node.id === hoveredNodeId)
+                  : undefined;
+              const hoverSide =
+                hoverHandle?.side ??
+                (hoverNode
+                  ? inferSideFromPoint(hoverNode, cursorWorld)
+                  : undefined);
               return (
                 <path
-                  d={previewPath(source, connectFrom.side, cursorWorld)}
+                  d={previewPath(
+                    source,
+                    connectFrom.side,
+                    cursorWorld,
+                    hoverNode && hoverNode.id !== source.id ? hoverNode : undefined,
+                    hoverSide
+                  )}
                   fill="none"
                   stroke="#40916C"
-                  strokeWidth="1.6"
-                  strokeDasharray="5 4"
+                  strokeWidth="2"
+                  strokeDasharray="6 4"
                   markerEnd="url(#haccp-arrow-active)"
                   className="pointer-events-none"
                 />
@@ -836,8 +1033,15 @@ export function FlowDiagramEditor({
               node={node}
               selected={selectedNode?.id === node.id}
               connecting={connectFrom?.nodeId === node.id}
+              dropTarget={
+                Boolean(connectFrom && connectFrom.nodeId !== node.id) &&
+                (hoveredNodeId === node.id || hoverHandle?.nodeId === node.id)
+              }
               activeSide={
                 connectFrom?.nodeId === node.id ? connectFrom.side : null
+              }
+              hoverSide={
+                hoverHandle?.nodeId === node.id ? hoverHandle.side : null
               }
               showHandles={
                 hoveredNodeId === node.id ||
@@ -896,6 +1100,16 @@ export function FlowDiagramEditor({
                   connectNodes(connectFrom.nodeId, node.id, connectFrom.side, side);
                 }
               }}
+              onHandlePointerEnter={(side) =>
+                setHoverHandle({ nodeId: node.id, side })
+              }
+              onHandlePointerLeave={(side) =>
+                setHoverHandle((current) =>
+                  current?.nodeId === node.id && current.side === side
+                    ? null
+                    : current
+                )
+              }
             />
           </div>
         ))}
@@ -931,19 +1145,106 @@ export function FlowDiagramEditor({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-[11px] text-ink-faint">
           {connectFrom
-            ? "Suelta en otro bloque o en uno de sus puntos para crear la flecha."
-            : "Arrastra el lienzo para moverte. Arrastra un punto para conectar. Las guías aparecen al alinear. Delete borra el seleccionado."}
+            ? "Arrastra o haz clic en otro puerto (arriba, abajo, izquierda o derecha). Puedes crear la flecha inversa y varias salidas."
+            : "Arrastra un punto para conectar. Arrastra la flecha arriba/abajo o a los lados para descruzarla. Delete borra."}
         </p>
-        {selection && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {selection?.kind === "node" && (
+            <button
+              type="button"
+              onClick={duplicateSelection}
+              className="h-7 px-2.5 rounded-md text-[11px] border border-border text-ink-light hover:border-forest hover:text-forest inline-flex items-center gap-1"
+            >
+              <Copy className="h-3 w-3" />
+              Duplicar
+            </button>
+          )}
+          {selection && (
+            <button
+              type="button"
+              onClick={deleteSelection}
+              className="h-7 px-2.5 rounded-md text-[11px] border border-border text-ink-light hover:text-danger hover:border-danger/30 inline-flex items-center gap-1"
+            >
+              <Trash2 className="h-3 w-3" />
+              Eliminar {selection.kind === "node" ? "bloque" : "flecha"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {selectedEdge && (
+        <div className="rounded-md border border-border bg-white px-3 py-2.5 flex flex-wrap items-center gap-3">
           <button
             type="button"
-            onClick={deleteSelection}
-            className="h-7 px-2.5 rounded-md text-[11px] border border-border text-ink-light hover:text-danger hover:border-danger/30 inline-flex items-center gap-1"
+            onClick={() => reverseEdge(selectedEdge.id)}
+            className="h-7 px-2.5 rounded-md text-[11px] border border-border text-ink-light hover:border-forest hover:text-forest inline-flex items-center gap-1"
           >
-            <Trash2 className="h-3 w-3" />
-            Eliminar {selection.kind === "node" ? "bloque" : "flecha"}
+            <ArrowLeftRight className="h-3 w-3" />
+            Invertir flecha
           </button>
-        )}
+          {(selectedEdge.offset ?? 0) !== 0 && (
+            <button
+              type="button"
+              onClick={() => setEdgeOffset(selectedEdge.id, 0)}
+              className="h-7 px-2.5 rounded-md text-[11px] border border-border text-ink-light hover:border-forest hover:text-forest"
+            >
+              Centrar tramo
+            </button>
+          )}
+          <SidePicker
+            label="Sale por"
+            value={selectedEdge.sourceSide}
+            onChange={(side) => setEdgeSide(selectedEdge.id, "source", side)}
+          />
+          <SidePicker
+            label="Entra por"
+            value={selectedEdge.targetSide}
+            onChange={(side) => setEdgeSide(selectedEdge.id, "target", side)}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+const SIDE_LABEL: Record<DiagramSide, string> = {
+  top: "↑",
+  bottom: "↓",
+  left: "←",
+  right: "→",
+};
+
+function SidePicker({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value?: DiagramSide;
+  onChange: (side: DiagramSide) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-[10px] uppercase tracking-wider text-ink-faint">
+        {label}
+      </span>
+      <div className="flex items-center gap-0.5">
+        {SIDES.map((side) => (
+          <button
+            key={side}
+            type="button"
+            title={side}
+            onClick={() => onChange(side)}
+            className={cn(
+              "h-7 w-7 rounded-md text-xs border",
+              value === side
+                ? "bg-forest text-white border-forest"
+                : "bg-white text-ink-light border-border hover:border-forest"
+            )}
+          >
+            {SIDE_LABEL[side]}
+          </button>
+        ))}
       </div>
     </div>
   );

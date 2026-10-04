@@ -50,6 +50,20 @@ export async function middleware(request: NextRequest) {
   } = await updateSession(request);
   const { pathname } = request.nextUrl;
 
+  if (pathname === "/") {
+    const code = request.nextUrl.searchParams.get("code");
+    const tokenHash = request.nextUrl.searchParams.get("token_hash");
+    const type = request.nextUrl.searchParams.get("type");
+    if (code || (tokenHash && type === "recovery")) {
+      const target = request.nextUrl.clone();
+      target.pathname = "/auth/callback";
+      if (!target.searchParams.get("next")) {
+        target.searchParams.set("next", "/recuperar/nueva");
+      }
+      return NextResponse.redirect(target);
+    }
+  }
+
   try {
     const rateLimited = await enforceRateLimit({
       request,

@@ -81,6 +81,8 @@ export interface DiagramEdge {
   sourceSide?: DiagramSide;
   targetSide?: DiagramSide;
   label?: string;
+  /** Desplaza el tramo central para descruzar flechas. */
+  offset?: number;
 }
 
 export interface ProcessDiagram {

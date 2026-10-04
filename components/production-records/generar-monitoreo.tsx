@@ -11,6 +11,7 @@ import {
   QR_EXPIRY_OPTIONS,
   expiryFromPreset,
   fieldMonitorUrl,
+  formatQrExpiry,
   generateMonitorToken,
   isQrLinkActive,
   type QrExpiryPreset,
@@ -177,8 +178,7 @@ export function GenerarMonitoreo({
             <Badge variant="success">Listo para terreno</Badge>
             <h3 className="text-sm font-semibold text-ink">{created.label}</h3>
             <p className="text-xs text-ink-faint">
-              {templateName} · vence{" "}
-              {new Date(created.expires_at).toLocaleString("es")}
+              {templateName} · {formatQrExpiry(created.expires_at)}
             </p>
             <p className="text-xs font-mono break-all text-ink-light bg-background rounded-md px-2 py-1.5">
               {createdUrl}
@@ -218,9 +218,7 @@ export function GenerarMonitoreo({
                     <p className="text-sm font-medium text-ink">{link.label}</p>
                     <p className="text-xs text-ink-faint">
                       {name ?? "Plantilla"} ·{" "}
-                      {active
-                        ? `vence ${new Date(link.expires_at).toLocaleString("es")}`
-                        : "cerrado"}
+                      {active ? formatQrExpiry(link.expires_at) : "cerrado"}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">

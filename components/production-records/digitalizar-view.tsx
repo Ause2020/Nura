@@ -10,6 +10,7 @@ import { submitProductionRecord } from "@/lib/production-records/submit";
 import {
   buildTemplateSnapshot,
   computeOperatorSignatureHash,
+  formatFieldLimits,
   isChecklistDeviation,
   isNumberOutOfRange,
   parseFieldOptions,
@@ -288,11 +289,13 @@ export function DigitalizarView({
             .filter((f) => f.field_type !== "photo")
             .map((field) => {
               const value = values[field.id] ?? "";
+              const limits = formatFieldLimits(field);
               return (
                 <label key={field.id} className="text-xs text-ink-light space-y-1 block">
                   <span>
                     {field.label}
                     {field.unit ? ` (${field.unit})` : ""}
+                    {limits ? ` · ${limits}` : ""}
                   </span>
                   {field.field_type === "select" ? (
                     <select

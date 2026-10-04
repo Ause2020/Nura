@@ -80,7 +80,7 @@ export function ProvisionUserForm({
   if (activeOrgs.length === 0) {
     return (
       <p className="text-sm text-ink-faint">
-        Crea primero un cliente con acceso activo.
+        Crea primero la empresa del cliente.
       </p>
     );
   }

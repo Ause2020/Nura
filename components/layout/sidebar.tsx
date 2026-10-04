@@ -38,7 +38,7 @@ const navIconMap: Record<CoreNavKey, typeof LayoutDashboard> = {
 
 const adminNavItem = {
   href: "/admin/acceso",
-  label: "Acceso manual",
+  label: "Clientes",
   icon: KeyRound,
 };
 

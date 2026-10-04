@@ -6,8 +6,8 @@ function InfoNotice({ info }: { info?: string }) {
   if (info === "manual-access") {
     return (
       <p className="text-xs text-ink-light bg-sage-light border border-sage/20 rounded-md px-3 py-2 mb-4">
-        El acceso a Nura se activa manualmente tras firmar contrato. Si ya tienes
-        credenciales, inicia sesión abajo.
+        Al contratar Nura te entregamos usuario y contraseña para el primer
+        acceso. Si ya las tienes, inicia sesión abajo.
       </p>
     );
   }
@@ -37,12 +37,13 @@ export default async function LoginPage({
   return (
     <AuthSplitLayout
       title="Iniciar sesión"
-      subtitle="Accede con las credenciales entregadas por Nura"
+      subtitle="Usa el usuario y la contraseña que te entregó Nura"
       footer={
         <p className="text-xs text-ink-faint text-center mt-6">
-          ¿Necesitas acceso?{" "}
+          ¿Aún no tienes acceso?{" "}
           <span className="text-ink-light">
-            Contacta a tu representante Nura tras firmar contrato.
+            Tu representante Nura crea la empresa y las credenciales al
+            contratar.
           </span>
         </p>
       }

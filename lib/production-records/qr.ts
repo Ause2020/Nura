@@ -1,11 +1,19 @@
-export type QrExpiryPreset = "8h" | "24h" | "7d";
+export type QrExpiryPreset = "8h" | "24h" | "7d" | "indefinite";
 
-export const QR_EXPIRY_OPTIONS: { value: QrExpiryPreset; label: string; hours: number }[] =
-  [
-    { value: "8h", label: "8 horas (un turno)", hours: 8 },
-    { value: "24h", label: "24 horas", hours: 24 },
-    { value: "7d", label: "7 días", hours: 24 * 7 },
-  ];
+export const QR_INDEFINITE_EXPIRES_AT = "9999-12-31T23:59:59.000Z";
+
+export const QR_EXPIRY_OPTIONS: { value: QrExpiryPreset; label: string }[] = [
+  { value: "8h", label: "8 horas (un turno)" },
+  { value: "24h", label: "24 horas" },
+  { value: "7d", label: "7 días" },
+  { value: "indefinite", label: "Indefinida" },
+];
+
+const PRESET_HOURS: Record<Exclude<QrExpiryPreset, "indefinite">, number> = {
+  "8h": 8,
+  "24h": 24,
+  "7d": 24 * 7,
+};
 
 export function generateMonitorToken(): string {
   const bytes = new Uint8Array(24);
@@ -16,8 +24,19 @@ export function generateMonitorToken(): string {
 }
 
 export function expiryFromPreset(preset: QrExpiryPreset, now = new Date()): Date {
-  const option = QR_EXPIRY_OPTIONS.find((o) => o.value === preset) ?? QR_EXPIRY_OPTIONS[1];
-  return new Date(now.getTime() + option.hours * 3_600_000);
+  if (preset === "indefinite") return new Date(QR_INDEFINITE_EXPIRES_AT);
+  const hours = PRESET_HOURS[preset] ?? 24;
+  return new Date(now.getTime() + hours * 3_600_000);
+}
+
+export function isIndefiniteExpiry(expiresAt: string): boolean {
+  const year = new Date(expiresAt).getFullYear();
+  return Number.isFinite(year) && year >= 9000;
+}
+
+export function formatQrExpiry(expiresAt: string): string {
+  if (isIndefiniteExpiry(expiresAt)) return "vigencia indefinida";
+  return `vence ${new Date(expiresAt).toLocaleString("es")}`;
 }
 
 export function fieldMonitorUrl(token: string, origin?: string): string {

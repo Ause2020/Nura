@@ -29,8 +29,8 @@ export function AdminAccessDashboard({
   return (
     <>
       <ModuleHeader
-        title="Acceso manual"
-        description="Provisiona credenciales tras firmar contrato con el cliente"
+        title="Clientes"
+        description="Alta de empresa, usuario y contraseña inicial cuando un cliente contrata Nura"
       />
 
       <div className="px-6 py-4 space-y-8">
@@ -39,8 +39,8 @@ export function AdminAccessDashboard({
             Nuevo cliente
           </h2>
           <p className="text-xs text-ink-faint mb-4">
-            Crea la empresa, el usuario principal y las credenciales de acceso.
-            Entrega email y contraseña al cliente en persona.
+            Crea la empresa, el usuario principal y la contraseña de primer
+            acceso. El cliente puede cambiarla después desde Configuración.
           </p>
           <ProvisionClientForm onCreated={refreshOrganizations} />
         </section>

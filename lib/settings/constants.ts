@@ -33,9 +33,9 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
     icon: Bell,
   },
   {
-    href: "/configuracion/acceso",
-    label: "Acceso",
-    description: "Estado de tu contrato",
+    href: "/configuracion/cuenta",
+    label: "Cuenta",
+    description: "Cambiar tu contraseña",
     icon: KeyRound,
   },
 ];
