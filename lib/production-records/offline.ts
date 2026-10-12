@@ -20,6 +20,8 @@ export interface PendingProductionSubmission {
     operatorSignatureHash: string;
     operatorSignedAt: string;
     submittedAt: string;
+    source?: "form" | "qr" | "ocr";
+    monitorName?: string | null;
   };
   queuedAt: string;
 }
@@ -53,4 +55,40 @@ export function removePendingSubmission(clientSubmissionId: string): void {
 
 export function isOnline(): boolean {
   return typeof navigator !== "undefined" ? navigator.onLine : true;
+}
+
+export const QR_QUEUE_KEY = "nura-qr-submissions-pending";
+
+export interface PendingQrSubmission {
+  clientId: string;
+  token: string;
+  monitorName: string;
+  lotNumber: string | null;
+  deviationNotes: string | null;
+  values: unknown[];
+  templateSnapshot: unknown;
+  queuedAt: string;
+}
+
+export function getPendingQrSubmissions(): PendingQrSubmission[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(QR_QUEUE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as PendingQrSubmission[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function queuePendingQrSubmission(entry: PendingQrSubmission): void {
+  const list = getPendingQrSubmissions().filter((item) => item.clientId !== entry.clientId);
+  list.push(entry);
+  localStorage.setItem(QR_QUEUE_KEY, JSON.stringify(list));
+}
+
+export function removePendingQrSubmission(clientId: string): void {
+  const list = getPendingQrSubmissions().filter((item) => item.clientId !== clientId);
+  localStorage.setItem(QR_QUEUE_KEY, JSON.stringify(list));
 }

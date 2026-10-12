@@ -40,14 +40,6 @@ const dashboardPaths = [
 ];
 
 export async function middleware(request: NextRequest) {
-  const {
-    supabaseResponse,
-    user,
-    onboardingCompleted,
-    accessAllowed,
-    platformAdmin,
-    userRole,
-  } = await updateSession(request);
   const { pathname } = request.nextUrl;
 
   if (pathname === "/") {
@@ -63,6 +55,15 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(target);
     }
   }
+
+  const {
+    supabaseResponse,
+    user,
+    onboardingCompleted,
+    accessAllowed,
+    platformAdmin,
+    userRole,
+  } = await updateSession(request);
 
   try {
     const rateLimited = await enforceRateLimit({

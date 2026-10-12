@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
@@ -14,6 +14,8 @@ import {
   type FieldValuePayload,
 } from "@/lib/production-records/utils";
 import { cn } from "@/lib/utils";
+import { queuePendingQrSubmission } from "@/lib/production-records/offline";
+import { syncQueuedQrSubmissions } from "@/lib/production-records/sync-queue";
 import type {
   ProductionFormField,
   ProductionFormSection,
@@ -48,7 +50,15 @@ export function FieldMonitorForm({
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [queued, setQueued] = useState(false);
   const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    void syncQueuedQrSubmissions();
+    const onOnline = () => void syncQueuedQrSubmissions();
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, []);
 
   function setField(id: string, value: string) {
     setValues((prev) => ({ ...prev, [id]: value }));
@@ -124,25 +134,53 @@ export function FieldMonitorForm({
 
     setLoading(true);
     setError("");
-    const res = await fetch("/api/monitoreo/qr-submit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const clientId = crypto.randomUUID();
+    const requestBody = {
+      token,
+      monitorName: monitorName.trim(),
+      lotNumber: lotNumber.trim() || null,
+      deviationNotes: notes.trim() || null,
+      values: buildPayload(),
+      templateSnapshot: snapshot,
+      clientSubmissionId: clientId,
+    };
+
+    function queueLocal() {
+      queuePendingQrSubmission({
+        clientId,
         token,
-        monitorName: monitorName.trim(),
-        lotNumber: lotNumber.trim() || null,
-        deviationNotes: notes.trim() || null,
-        values: buildPayload(),
-        templateSnapshot: snapshot,
-      }),
-    });
-    setLoading(false);
-    const body = (await res.json()) as { error?: string };
-    if (!res.ok) {
-      setError(body.error ?? "No se pudo guardar");
-      return;
+        monitorName: requestBody.monitorName,
+        lotNumber: requestBody.lotNumber,
+        deviationNotes: requestBody.deviationNotes,
+        values: requestBody.values,
+        templateSnapshot: requestBody.templateSnapshot,
+        queuedAt: new Date().toISOString(),
+      });
+      setQueued(true);
+      setDone(true);
     }
-    setDone(true);
+
+    try {
+      const res = await fetch("/api/monitoreo/qr-submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (res.ok) {
+        setDone(true);
+        return;
+      }
+      if (res.status === 400 || res.status === 410) {
+        setError(body.error ?? "No se pudo guardar");
+        return;
+      }
+      queueLocal();
+    } catch {
+      queueLocal();
+    } finally {
+      setLoading(false);
+    }
   }
 
   if (done) {
@@ -154,8 +192,9 @@ export function FieldMonitorForm({
             Registro enviado
           </h1>
           <p className="text-sm text-ink-light">
-            Quedó en el histórico de {organizationName}. Puedes cerrar esta
-            pantalla.
+            {queued
+              ? "Quedó en este celular. Se enviará al recuperar conexión; no borres los datos del navegador hasta entonces."
+              : `Quedó en el histórico de ${organizationName}. Puedes cerrar esta pantalla.`}
           </p>
         </div>
       </div>

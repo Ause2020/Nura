@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, ChevronRight } from "lucide-react";
 import { CapaActionsPanel } from "@/components/capa/capa-actions-panel";
 import { FishboneForm } from "@/components/capa/fishbone-form";
@@ -18,6 +18,7 @@ import {
   validateStageAdvance,
 } from "@/lib/capa/workflow";
 import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
+import { useDebouncedCallback } from "@/lib/haccp-plan/use-debounced-callback";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import type {
@@ -89,6 +90,8 @@ export function CapaWorkflowPanel({
     nc.effectiveness_notes ?? ""
   );
   const [recurrence, setRecurrence] = useState(nc.recurrence);
+  const draftPatchRef = useRef<Partial<Nonconformity>>({});
+  const draftSaveRef = useRef<Promise<void>>(Promise.resolve());
 
   const currentStage = nc.capa_stage;
   const canCloseRole = hasPermission(userRole, PERMISSIONS.capa.close);
@@ -113,7 +116,43 @@ export function CapaWorkflowPanel({
     onNcUpdate(data as Nonconformity);
   }
 
+  const persistNcDraft = useDebouncedCallback(() => {
+    const patch = draftPatchRef.current;
+    draftPatchRef.current = {};
+    if (Object.keys(patch).length === 0) return;
+    draftSaveRef.current = saveNcPatch(patch).catch((err) => {
+      setError(
+        err instanceof Error
+          ? `No se pudo guardar: ${err.message}`
+          : "No se pudo guardar. Revisá la conexión."
+      );
+    });
+  }, 1000);
+
+  function queueNcDraft(patch: Partial<Nonconformity>) {
+    draftPatchRef.current = { ...draftPatchRef.current, ...patch };
+    persistNcDraft();
+  }
+
+  useEffect(() => {
+    function flush() {
+      persistNcDraft.flush();
+    }
+    function onVisibility() {
+      if (document.visibilityState === "hidden") flush();
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
+  }, [persistNcDraft]);
+
   async function advanceStage() {
+    persistNcDraft.flush();
+    await draftSaveRef.current;
     if (currentStage === "closed") return;
 
     const validation = validateStageAdvance(currentStage, {
@@ -321,7 +360,10 @@ export function CapaWorkflowPanel({
                             </label>
                             <select
                               value={assignedTo}
-                              onChange={(e) => setAssignedTo(e.target.value)}
+                              onChange={(e) => {
+                                setAssignedTo(e.target.value);
+                                queueNcDraft({ assigned_to: e.target.value });
+                              }}
                               className="w-full h-9 px-3 text-sm border border-border rounded-md bg-white"
                             >
                               {members.map((m) => (
@@ -335,7 +377,12 @@ export function CapaWorkflowPanel({
                             label="Fecha objetivo de cierre CAPA"
                             type="date"
                             value={targetClose}
-                            onChange={(e) => setTargetClose(e.target.value)}
+                            onChange={(e) => {
+                              setTargetClose(e.target.value);
+                              queueNcDraft({
+                                capa_target_close_date: e.target.value || null,
+                              });
+                            }}
                           />
                         </div>
                       )}
@@ -344,7 +391,12 @@ export function CapaWorkflowPanel({
                         <Textarea
                           label="Descripción de contención inmediata"
                           value={containment}
-                          onChange={(e) => setContainment(e.target.value)}
+                          onChange={(e) => {
+                            setContainment(e.target.value);
+                            queueNcDraft({
+                              containment_description: e.target.value.trim() || null,
+                            });
+                          }}
                           className="min-h-[80px]"
                         />
                       )}
@@ -357,7 +409,10 @@ export function CapaWorkflowPanel({
                               variant={
                                 method === "5why" ? "primary" : "secondary"
                               }
-                              onClick={() => setMethod("5why")}
+                              onClick={() => {
+                                setMethod("5why");
+                                queueNcDraft({ root_cause_method: "5why" });
+                              }}
                             >
                               5 Porqués
                             </Button>
@@ -366,7 +421,10 @@ export function CapaWorkflowPanel({
                               variant={
                                 method === "fishbone" ? "primary" : "secondary"
                               }
-                              onClick={() => setMethod("fishbone")}
+                              onClick={() => {
+                                setMethod("fishbone");
+                                queueNcDraft({ root_cause_method: "fishbone" });
+                              }}
                             >
                               Ishikawa
                             </Button>
@@ -429,9 +487,12 @@ export function CapaWorkflowPanel({
                             label="Fecha programada de verificación"
                             type="date"
                             value={effectivenessDue}
-                            onChange={(e) =>
-                              setEffectivenessDue(e.target.value)
-                            }
+                            onChange={(e) => {
+                              setEffectivenessDue(e.target.value);
+                              queueNcDraft({
+                                effectiveness_due_date: e.target.value || null,
+                              });
+                            }}
                           />
                           <div className="space-y-1">
                             <label className="text-xs font-medium text-ink-light uppercase tracking-wider font-mono">
@@ -439,11 +500,11 @@ export function CapaWorkflowPanel({
                             </label>
                             <select
                               value={effectivenessResult}
-                              onChange={(e) =>
-                                setEffectivenessResult(
-                                  e.target.value as EffectivenessResult
-                                )
-                              }
+                              onChange={(e) => {
+                                const next = e.target.value as EffectivenessResult;
+                                setEffectivenessResult(next);
+                                queueNcDraft({ effectiveness_result: next });
+                              }}
                               className="w-full h-9 px-3 text-sm border border-border rounded-md bg-white"
                             >
                               <option value="pending">Pendiente</option>
@@ -454,9 +515,12 @@ export function CapaWorkflowPanel({
                           <Textarea
                             label="Notas de verificación"
                             value={effectivenessNotes}
-                            onChange={(e) =>
-                              setEffectivenessNotes(e.target.value)
-                            }
+                            onChange={(e) => {
+                              setEffectivenessNotes(e.target.value);
+                              queueNcDraft({
+                                effectiveness_notes: e.target.value.trim() || null,
+                              });
+                            }}
                             className="min-h-[60px]"
                           />
                           {effectivenessResult === "ineffective" && (
@@ -478,9 +542,11 @@ export function CapaWorkflowPanel({
                             <input
                               type="checkbox"
                               checked={recurrence}
-                              onChange={(e) =>
-                                setRecurrence(e.target.checked)
-                              }
+                              onChange={(e) => {
+                                const next = e.target.checked;
+                                setRecurrence(next);
+                                queueNcDraft({ recurrence: next });
+                              }}
                             />
                             Marcar como reincidencia
                           </label>

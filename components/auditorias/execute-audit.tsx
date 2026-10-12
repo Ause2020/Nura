@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,31 @@ interface ExecuteAuditProps {
   items: AuditChecklistItem[];
   organizationId: string;
   userId: string;
+}
+
+const FINDING_DRAFTS_PREFIX = "nura-audit-finding-drafts:";
+
+function findingDraftsKey(auditId: string) {
+  return `${FINDING_DRAFTS_PREFIX}${auditId}`;
+}
+
+function readFindingDrafts(auditId: string): Record<string, ItemState> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(findingDraftsKey(auditId));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, ItemState>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeFindingDraft(auditId: string, itemId: string, state: ItemState) {
+  if (typeof window === "undefined") return;
+  const all = readFindingDrafts(auditId);
+  all[itemId] = state;
+  localStorage.setItem(findingDraftsKey(auditId), JSON.stringify(all));
 }
 
 const RESULT_BUTTONS: {
@@ -71,14 +96,20 @@ export function ExecuteAudit({
   }, [sortedItems]);
 
   const [responses, setResponses] = useState<Record<string, ItemState>>(() => {
+    const drafts = readFindingDrafts(audit.id);
     const init: Record<string, ItemState> = {};
     for (const item of sortedItems) {
+      const draft = drafts[item.id];
       if (item.result && item.result !== "not_evaluated") {
         init[item.id] = {
           result: item.result,
-          finding: item.finding ?? undefined,
-          photo_url: item.photo_url,
+          finding: item.finding ?? draft?.finding ?? undefined,
+          finding_type:
+            draft?.finding_type ?? (item.finding ? "minor_nc" : undefined),
+          photo_url: item.photo_url ?? draft?.photo_url ?? null,
         };
+      } else if (draft?.result) {
+        init[item.id] = draft;
       }
     }
     return init;
@@ -92,6 +123,8 @@ export function ExecuteAudit({
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const responsesRef = useRef(responses);
+  responsesRef.current = responses;
 
   useEffect(() => {
     if (audit.status !== "scheduled") return;
@@ -119,41 +152,53 @@ export function ExecuteAudit({
     });
   }
 
+  const persistItem = useCallback(
+    async (itemId: string, state: ItemState) => {
+      writeFindingDraft(audit.id, itemId, state);
+      const supabase = createClient();
+      const { error: auditError } = await supabase
+        .from("audits")
+        .update({ status: "in_progress" })
+        .eq("id", audit.id);
+      const { error: itemError } = await supabase
+        .from("audit_checklist_items")
+        .update({
+          result: state.result,
+          finding: state.finding ?? null,
+          photo_url: state.photo_url ?? null,
+        })
+        .eq("id", itemId);
+      if (auditError || itemError) {
+        setError(
+          auditError?.message ??
+            itemError?.message ??
+            "No se pudo guardar el ítem. Revisá la conexión."
+        );
+        return false;
+      }
+      setError("");
+      setSavedAt(
+        new Date().toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })
+      );
+      return true;
+    },
+    [audit.id]
+  );
+
   function setResult(itemId: string, result: AuditChecklistResult) {
     if (result === "not_complies" || result === "partial") {
+      const next = { ...responsesRef.current[itemId], result };
       setDrawerItemId(itemId);
-      setResponses((prev) => ({
-        ...prev,
-        [itemId]: { ...prev[itemId], result },
-      }));
+      setResponses((prev) => ({ ...prev, [itemId]: next }));
+      void persistItem(itemId, next);
     } else {
+      const next: ItemState = { result, finding: undefined, photo_url: null };
       setResponses((prev) => ({
         ...prev,
-        [itemId]: { result, finding: undefined, photo_url: null },
+        [itemId]: next,
       }));
-      void persistItem(itemId, {
-        result,
-        finding: undefined,
-        photo_url: null,
-      });
+      void persistItem(itemId, next);
     }
-  }
-
-  async function persistItem(itemId: string, state: ItemState) {
-    const supabase = createClient();
-    await supabase
-      .from("audits")
-      .update({ status: "in_progress" })
-      .eq("id", audit.id);
-    await supabase
-      .from("audit_checklist_items")
-      .update({
-        result: state.result,
-        finding: state.finding ?? null,
-        photo_url: state.photo_url ?? null,
-      })
-      .eq("id", itemId);
-    setSavedAt(new Date().toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }));
   }
 
   function saveFinding(
@@ -161,7 +206,7 @@ export function ExecuteAudit({
     data: { finding_type: FindingType; finding: string; photo_url: string | null }
   ) {
     const next: ItemState = {
-      result: responses[itemId]?.result ?? "not_complies",
+      result: responsesRef.current[itemId]?.result ?? "not_complies",
       finding: data.finding,
       finding_type: data.finding_type,
       photo_url: data.photo_url,
@@ -173,20 +218,29 @@ export function ExecuteAudit({
     void persistItem(itemId, next);
   }
 
-  async function persistAllProgress(): Promise<boolean> {
-    setSaving(true);
-    setError("");
+  const persistAllProgress = useCallback(async (opts?: { silent?: boolean }): Promise<boolean> => {
+    if (!opts?.silent) {
+      setSaving(true);
+      setError("");
+    }
     const supabase = createClient();
+    const current = responsesRef.current;
 
-    await supabase
+    const { error: auditError } = await supabase
       .from("audits")
       .update({ status: "in_progress" })
       .eq("id", audit.id);
+    if (auditError) {
+      if (!opts?.silent) setSaving(false);
+      setError(auditError.message);
+      return false;
+    }
 
     for (const item of sortedItems) {
-      const r = responses[item.id];
+      const r = current[item.id];
       if (!r?.result) continue;
-      await supabase
+      writeFindingDraft(audit.id, item.id, r);
+      const { error: itemError } = await supabase
         .from("audit_checklist_items")
         .update({
           result: r.result,
@@ -194,15 +248,37 @@ export function ExecuteAudit({
           photo_url: r.photo_url ?? null,
         })
         .eq("id", item.id);
+      if (itemError) {
+        if (!opts?.silent) setSaving(false);
+        setError(itemError.message);
+        return false;
+      }
     }
 
-    setSaving(false);
-    setSavedAt(new Date().toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }));
+    if (!opts?.silent) setSaving(false);
+    setSavedAt(
+      new Date().toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })
+    );
     return true;
-  }
+  }, [audit.id, sortedItems]);
+
+  useEffect(() => {
+    function onVisibility() {
+      if (document.visibilityState === "hidden") {
+        void persistAllProgress({ silent: true });
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onVisibility);
+    };
+  }, [persistAllProgress]);
 
   async function handlePause() {
-    await persistAllProgress();
+    const ok = await persistAllProgress();
+    if (!ok) return;
     router.push("/auditorias");
     router.refresh();
   }

@@ -10,12 +10,11 @@ import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { CHECKLIST_OPTIONS, PHOTOS_BUCKET } from "@/lib/production-records/constants";
 import {
-  getPendingSubmissions,
   isOnline,
   queuePendingSubmission,
-  removePendingSubmission,
 } from "@/lib/production-records/offline";
 import { submitProductionRecord } from "@/lib/production-records/submit";
+import { syncQueuedProductionRecords } from "@/lib/production-records/sync-queue";
 import {
   buildTemplateSnapshot,
   computeOperatorSignatureHash,
@@ -73,6 +72,7 @@ export function ProductionFormExecutor({
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
   const [resultNcId, setResultNcId] = useState<string | null>(null);
+  const [queued, setQueued] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
   const hasDeviation = useMemo(() => {
@@ -88,39 +88,8 @@ export function ProductionFormExecutor({
 
   const syncPending = useCallback(async () => {
     if (!isOnline()) return;
-    const pending = getPendingSubmissions().filter(
-      (p) => p.organizationId === organizationId
-    );
-    if (pending.length === 0) return;
-
     setSyncing(true);
-    const supabase = createClient();
-
-    for (const item of pending) {
-      try {
-        await submitProductionRecord(supabase, {
-          organizationId: item.organizationId,
-          userId,
-          templateId: item.templateId,
-          templateSnapshot: item.payload.templateSnapshot as ReturnType<
-            typeof buildTemplateSnapshot
-          >,
-          area: item.payload.area,
-          lotNumber: item.payload.lotNumber,
-          deviationNotes: item.payload.deviationNotes,
-          values: item.payload.values as FieldValuePayload[],
-          operatorSignatureHash: item.payload.operatorSignatureHash,
-          operatorSignedAt: item.payload.operatorSignedAt,
-          submittedAt: item.payload.submittedAt,
-          clientSubmissionId: item.clientSubmissionId,
-          syncStatus: "synced",
-        });
-        removePendingSubmission(item.clientSubmissionId);
-      } catch {
-        // keep in queue
-      }
-    }
-
+    await syncQueuedProductionRecords({ organizationId, userId });
     setSyncing(false);
     router.refresh();
   }, [organizationId, userId, router]);
@@ -274,6 +243,7 @@ export function ProductionFormExecutor({
         },
         queuedAt: now,
       });
+      setQueued(true);
       setDone(true);
       setLoading(false);
       return;
@@ -285,8 +255,25 @@ export function ProductionFormExecutor({
       setResultNcId(result.ncId);
       setDone(true);
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al guardar");
+    } catch {
+      queuePendingSubmission({
+        clientSubmissionId,
+        organizationId,
+        templateId: template.id,
+        payload: {
+          area: template.area,
+          lotNumber: lotNumber.trim() || null,
+          deviationNotes: deviationNotes.trim() || null,
+          values: valuePayloads,
+          templateSnapshot: snapshot,
+          operatorSignatureHash: signatureHash,
+          operatorSignedAt: now,
+          submittedAt: now,
+        },
+        queuedAt: now,
+      });
+      setQueued(true);
+      setDone(true);
     } finally {
       setLoading(false);
     }
@@ -300,8 +287,8 @@ export function ProductionFormExecutor({
         </div>
         <h2 className="text-sm font-semibold text-ink">Registro guardado</h2>
         <p className="text-xs text-ink-faint">
-          {!isOnline()
-            ? "Quedó en cola local. Se sincronizará al recuperar conexión."
+          {queued
+            ? "Quedó guardado en este dispositivo. Se enviará al recuperar conexión."
             : resultNcId
               ? "Se generó un borrador de No Conformidad por la desviación."
               : "El registro quedó conforme."}

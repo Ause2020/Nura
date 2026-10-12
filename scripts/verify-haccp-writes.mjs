@@ -97,3 +97,17 @@ test("el wizard consolida current_step, checklist y status en un patch", () => {
   assert.doesNotMatch(wizard, /persistStep\(/);
   assert.doesNotMatch(wizard, /persistChecklist/);
 });
+
+test("el wizard avisa si un persist falla y hace flush al salir", () => {
+  assert.match(wizard, /const persistOrWarn = useCallback/);
+  assert.match(wizard, /No se pudo guardar/);
+  assert.match(wizard, /pagehide/);
+  assert.doesNotMatch(wizard, /void syncDiagrams/);
+});
+
+test("el backup local con savedAt pisa servidor vacío o más viejo", () => {
+  assert.match(stepService, /type LocalEnvelope/);
+  assert.match(stepService, /export function mergeLocalStepData/);
+  assert.match(stepService, /payloadLooksEmpty/);
+  assert.match(stepService, /envelope\.savedAt > serverMs/);
+});

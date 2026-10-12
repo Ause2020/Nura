@@ -67,6 +67,20 @@ export async function submitProductionRecord(
     .single();
 
   if (submissionError || !submissionData) {
+    const duplicate =
+      submissionError?.code === "23505" && input.clientSubmissionId;
+    if (duplicate) {
+      const { data: existing } = await supabase
+        .from("production_form_submissions")
+        .select("id, nc_id")
+        .eq("organization_id", input.organizationId)
+        .eq("client_submission_id", input.clientSubmissionId)
+        .maybeSingle();
+      if (existing) {
+        const row = existing as { id: string; nc_id: string | null };
+        return { submissionId: row.id, ncId: row.nc_id };
+      }
+    }
     throw new Error(submissionError?.message ?? "No se pudo guardar el registro");
   }
 

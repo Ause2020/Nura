@@ -44,8 +44,8 @@ import { isSignificant } from "@/lib/haccp-plan/risk";
 import {
   getStepDataForSteps,
   isStepDataKeyLoaded,
+  mergeLocalStepData,
   primeStepDataWrites,
-  readStepLocalBackup,
   requiredStepDataIds,
   saveStepData,
   writeStepLocalBackup,
@@ -75,30 +75,6 @@ function loadedStepIds(data: LoadedStepData): Set<StepDataId> {
   return next;
 }
 
-function mergeLocalStepData(data: LoadedStepData): LoadedStepData {
-  const local = readStepLocalBackup();
-  const next: LoadedStepData = { ...data };
-  if (isStepDataKeyLoaded(data, 7) && local[7] && !(data[7]?.hazards.length)) {
-    next[7] = local[7];
-  }
-  if (isStepDataKeyLoaded(data, 8) && local[8] && !(data[8]?.criticalLimits.length)) {
-    next[8] = local[8];
-  }
-  if (isStepDataKeyLoaded(data, 9) && local[9] && !(data[9]?.monitoringPlans.length)) {
-    next[9] = local[9];
-  }
-  if (
-    isStepDataKeyLoaded(data, 10) &&
-    local[10] &&
-    !(data[10]?.correctiveActions.length)
-  ) {
-    next[10] = local[10];
-  }
-  if (isStepDataKeyLoaded(data, 11) && local[11] && !data[11]) {
-    next[11] = local[11];
-  }
-  return next;
-}
 
 interface HaccpPlanWizardProps {
   organizationId: string;
@@ -186,7 +162,7 @@ export function HaccpPlanWizard({
   }
 
   const applyStepData = useCallback((data: LoadedStepData) => {
-    const merged = mergeLocalStepData(data);
+    const merged = mergeLocalStepData(data, organizationId);
     primeStepDataWrites(organizationId, merged);
     if (isStepDataKeyLoaded(merged, 7)) {
       setStep7(merged[7]?.hazards ?? []);
@@ -287,11 +263,21 @@ export function HaccpPlanWizard({
 
   const ccps = significantRows.filter((row) => row.isCCP === true);
 
+  const persistOrWarn = useCallback((promise: Promise<unknown>) => {
+    void promise.catch((err) => {
+      setError(
+        err instanceof Error
+          ? `No se pudo guardar: ${err.message}`
+          : "No se pudo guardar. Revisá la conexión e intentá de nuevo."
+      );
+    });
+  }, []);
+
   const persistPlan = useDebouncedCallback(() => {
     const patch = planPatchRef.current;
     planPatchRef.current = {};
     if (Object.keys(patch).length === 0) return;
-    void updatePlanFields(plan.id, patch);
+    persistOrWarn(updatePlanFields(plan.id, patch));
   }, 800);
 
   const queuePlanPatch = useCallback(
@@ -311,20 +297,20 @@ export function HaccpPlanWizard({
 
   const persistTeamMember = useDebouncedCallback((member: TeamMember) => {
     const index = team.findIndex((item) => item.id === member.id);
-    void updateTeamMember(member, plan.id, index);
+    persistOrWarn(updateTeamMember(member, plan.id, index));
   }, 1500);
 
   const persistProduct = useDebouncedCallback((product: Product) => {
     const index = products.findIndex((item) => item.id === product.id);
-    void updateProduct(product, plan.id, index);
+    persistOrWarn(updateProduct(product, plan.id, index));
   }, 1500);
 
   const persistDiagrams = useDebouncedCallback((next: ProcessDiagram[]) => {
-    void syncDiagrams(plan.id, next);
+    persistOrWarn(syncDiagrams(plan.id, next));
   }, 800);
 
   const persistValidation = useDebouncedCallback((next: PlanValidation) => {
-    void upsertValidation(plan.id, next, userId);
+    persistOrWarn(upsertValidation(plan.id, next, userId));
   }, 2000);
 
   const persistHazard = useDebouncedCallback((hazard: Hazard) => {
@@ -332,47 +318,53 @@ export function HaccpPlanWizard({
       diagramsRef.current
         .flatMap((diagram) => diagram.nodes)
         .find((node) => node.id === hazard.stepId)?.label ?? "";
-    void updateHazard(hazard, plan.id, plan.riskMatrix.significanceThreshold, label);
+    persistOrWarn(
+      updateHazard(hazard, plan.id, plan.riskMatrix.significanceThreshold, label)
+    );
   }, 800);
 
   const persistStep7 = useDebouncedCallback((rows: HazardRow[], questions = ccpQuestions) => {
     const payload = { hazards: rows, questions };
     writeStepLocalBackup(7, payload);
-    void saveStepData(organizationId, 7, payload);
     const ccpIds = rows.filter((row) => row.isCCP === true).map((row) => row.id);
-    void upsertCcpDecisions(
-      rows.map((row) => ({
-        planId: plan.id,
-        hazardId: row.id,
-        q1: row.q1,
-        q2: row.q2,
-        q3: row.q3,
-        q4: row.q4,
-        result: ccpDecisionLabel(evaluateCcpTree(row.q1, row.q2, row.q3, row.q4)),
-        pccNumber: row.isCCP ? ccpIds.indexOf(row.id) + 1 : null,
-      }))
+    persistOrWarn(
+      Promise.all([
+        saveStepData(organizationId, 7, payload),
+        upsertCcpDecisions(
+          rows.map((row) => ({
+            planId: plan.id,
+            hazardId: row.id,
+            q1: row.q1,
+            q2: row.q2,
+            q3: row.q3,
+            q4: row.q4,
+            result: ccpDecisionLabel(evaluateCcpTree(row.q1, row.q2, row.q3, row.q4)),
+            pccNumber: row.isCCP ? ccpIds.indexOf(row.id) + 1 : null,
+          }))
+        ),
+      ])
     );
   }, 1000);
 
   const persistStep8 = useDebouncedCallback((limits: typeof step8) => {
     const payload = { criticalLimits: limits };
     writeStepLocalBackup(8, payload);
-    void saveStepData(organizationId, 8, payload);
+    persistOrWarn(saveStepData(organizationId, 8, payload));
   }, 1000);
   const persistStep9 = useDebouncedCallback((plans: typeof step9) => {
     const payload = { monitoringPlans: plans };
     writeStepLocalBackup(9, payload);
-    void saveStepData(organizationId, 9, payload);
+    persistOrWarn(saveStepData(organizationId, 9, payload));
   }, 1000);
   const persistStep10 = useDebouncedCallback((actions: typeof step10) => {
     const payload = { correctiveActions: actions };
     writeStepLocalBackup(10, payload);
-    void saveStepData(organizationId, 10, payload);
+    persistOrWarn(saveStepData(organizationId, 10, payload));
   }, 1000);
   const persistStep11 = useDebouncedCallback((payload: typeof step11) => {
     const next = { verificationPlan: payload };
     writeStepLocalBackup(11, next);
-    void saveStepData(organizationId, 11, next);
+    persistOrWarn(saveStepData(organizationId, 11, next));
   }, 1000);
 
   const persistFnsRef = useRef({
@@ -413,7 +405,7 @@ export function HaccpPlanWizard({
   useEffect(() => {
     if (previousStep.current === 4 && currentStep !== 4) {
       persistFnsRef.current.persistDiagrams.flush();
-      void syncDiagrams(plan.id, diagramsRef.current);
+      persistOrWarn(syncDiagrams(plan.id, diagramsRef.current));
     }
     previousStep.current = currentStep;
     queuePlanPatch({ current_step: currentStep });
@@ -459,10 +451,12 @@ export function HaccpPlanWizard({
     }
 
     document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", flushPending);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", flushPending);
       flushPending();
-      void syncDiagrams(plan.id, diagramsRef.current);
+      persistOrWarn(syncDiagrams(plan.id, diagramsRef.current));
     };
   }, [plan.id]);
 
@@ -632,7 +626,7 @@ export function HaccpPlanWizard({
             const next = diagrams.filter((item) => item.id !== id);
             setDiagrams(next);
             setActiveDiagramId(next[0]?.id ?? "");
-            void syncDiagrams(plan.id, next, { removedIds: [id] });
+            persistOrWarn(syncDiagrams(plan.id, next, { removedIds: [id] }));
           }}
         />
       )}
@@ -811,7 +805,7 @@ export function HaccpPlanWizard({
           onClose={() => setMatrixOpen(false)}
           onSave={(matrix: RiskMatrix) => {
             setPlan((prev) => ({ ...prev, riskMatrix: matrix }));
-            void updatePlanFields(plan.id, { risk_matrix: matrix });
+            persistOrWarn(updatePlanFields(plan.id, { risk_matrix: matrix }));
           }}
         />
       )}

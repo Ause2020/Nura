@@ -25,7 +25,11 @@ export type StepDataId = keyof StepPayloadMap;
 
 export type LoadedStepData = Partial<{
   [K in StepDataId]: StepPayloadMap[K] | null;
-}>;
+}> & {
+  updatedAtMs?: Partial<Record<StepDataId, number>>;
+};
+
+type LocalEnvelope = { data: unknown; savedAt: number };
 
 export function requiredStepDataIds(currentStep: number): StepDataId[] {
   if (currentStep === 7) return [7];
@@ -55,11 +59,44 @@ function readLocal(): Record<string, unknown> {
   }
 }
 
+function unwrapLocal(raw: unknown): LocalEnvelope | null {
+  if (!raw || typeof raw !== "object") return null;
+  const record = raw as Record<string, unknown>;
+  if ("data" in record && typeof record.savedAt === "number") {
+    return { data: record.data, savedAt: record.savedAt };
+  }
+  return { data: raw, savedAt: 0 };
+}
+
 function writeLocal(stepId: number, data: unknown) {
   if (typeof window === "undefined") return;
   const current = readLocal();
-  current[String(stepId)] = data;
+  current[String(stepId)] = { data, savedAt: Date.now() };
   localStorage.setItem(LOCAL_BACKUP_KEY, JSON.stringify(current));
+}
+
+function assignStepPayload<K extends StepDataId>(
+  target: Partial<Record<StepDataId, StepPayloadMap[StepDataId] | null>>,
+  stepId: K,
+  payload: StepPayloadMap[K] | null
+) {
+  target[stepId] = payload;
+}
+
+function payloadLooksEmpty(stepId: StepDataId, payload: unknown): boolean {
+  if (!payload || typeof payload !== "object") return true;
+  const record = payload as Record<string, unknown>;
+  if (stepId === 7) return !Array.isArray(record.hazards) || record.hazards.length === 0;
+  if (stepId === 8) {
+    return !Array.isArray(record.criticalLimits) || record.criticalLimits.length === 0;
+  }
+  if (stepId === 9) {
+    return !Array.isArray(record.monitoringPlans) || record.monitoringPlans.length === 0;
+  }
+  if (stepId === 10) {
+    return !Array.isArray(record.correctiveActions) || record.correctiveActions.length === 0;
+  }
+  return !record.verificationPlan;
 }
 
 function stepWriteKey(organizationId: string, stepId: number) {
@@ -76,13 +113,54 @@ export function writeStepLocalBackup<K extends keyof StepPayloadMap>(
 export function readStepLocalBackup(): Partial<{
   [K in keyof StepPayloadMap]: StepPayloadMap[K];
 }> {
-  const raw = readLocal();
   const next: Partial<{ [K in keyof StepPayloadMap]: StepPayloadMap[K] }> = {};
-  if (raw["7"]) next[7] = raw["7"] as StepPayloadMap[7];
-  if (raw["8"]) next[8] = raw["8"] as StepPayloadMap[8];
-  if (raw["9"]) next[9] = raw["9"] as StepPayloadMap[9];
-  if (raw["10"]) next[10] = raw["10"] as StepPayloadMap[10];
-  if (raw["11"]) next[11] = raw["11"] as StepPayloadMap[11];
+  for (const stepId of [7, 8, 9, 10, 11] as const) {
+    const envelope = unwrapLocal(readLocal()[String(stepId)]);
+    if (envelope?.data) {
+      assignStepPayload(
+        next,
+        stepId,
+        envelope.data as StepPayloadMap[typeof stepId]
+      );
+    }
+  }
+  return next;
+}
+
+export function mergeLocalStepData(
+  data: LoadedStepData,
+  organizationId?: string
+): LoadedStepData {
+  const next: LoadedStepData = { ...data, updatedAtMs: { ...data.updatedAtMs } };
+  const toPush: StepDataId[] = [];
+  for (const stepId of [7, 8, 9, 10, 11] as const) {
+    if (!isStepDataKeyLoaded(data, stepId)) continue;
+    const envelope = unwrapLocal(readLocal()[String(stepId)]);
+    if (!envelope?.data) continue;
+    const server = data[stepId];
+    const serverMs = data.updatedAtMs?.[stepId] ?? 0;
+    const preferLocal =
+      payloadLooksEmpty(stepId, server) ||
+      (envelope.savedAt > 0 && envelope.savedAt > serverMs);
+    if (!preferLocal) continue;
+    assignStepPayload(
+      next,
+      stepId,
+      envelope.data as StepPayloadMap[typeof stepId]
+    );
+    if (envelope.savedAt > serverMs && !payloadLooksEmpty(stepId, envelope.data)) {
+      toPush.push(stepId);
+    }
+  }
+  if (organizationId && toPush.length > 0) {
+    void Promise.all(
+      toPush.map((stepId) => {
+        const payload = next[stepId];
+        if (!payload) return Promise.resolve();
+        return saveStepData(organizationId, stepId, payload).catch(() => undefined);
+      })
+    );
+  }
   return next;
 }
 
@@ -112,12 +190,12 @@ export async function getStepData<K extends keyof StepPayloadMap>(
     .maybeSingle();
 
   if (error) {
-    const local = readLocal()[String(stepId)];
+    const local = unwrapLocal(readLocal()[String(stepId)])?.data;
     return (local as StepPayloadMap[K]) ?? null;
   }
 
   if (!data) {
-    const local = readLocal()[String(stepId)];
+    const local = unwrapLocal(readLocal()[String(stepId)])?.data;
     if (local) {
       await saveStepData(organizationId, stepId, local as StepPayloadMap[K]);
       return local as StepPayloadMap[K];
@@ -168,25 +246,39 @@ export async function getStepDataForSteps(
   );
   const { data, error } = await supabase
     .from("haccp_step_data")
-    .select("step_id, data")
+    .select("step_id, data, updated_at")
     .eq("organization_id", organizationId)
     .in("step_id", unique);
   endStepQuery();
 
   if (error) {
-    throw new Error(error.message);
+    const local = readStepLocalBackup();
+    const fallback: LoadedStepData = { updatedAtMs: {} };
+    for (const stepId of unique) {
+      assignStepPayload(fallback, stepId, local[stepId] ?? null);
+    }
+    return fallback;
   }
 
   const byStep: Partial<Record<StepDataId, StepPayloadMap[StepDataId]>> = {};
+  const updatedAtMs: Partial<Record<StepDataId, number>> = {};
   if (data) {
-    for (const row of data as { step_id: number; data: unknown }[]) {
+    for (const row of data as {
+      step_id: number;
+      data: unknown;
+      updated_at: string | null;
+    }[]) {
       const stepId = row.step_id as StepDataId;
       if (unique.includes(stepId)) {
         byStep[stepId] = row.data as StepPayloadMap[typeof stepId];
+        updatedAtMs[stepId] = row.updated_at
+          ? new Date(row.updated_at).getTime()
+          : 0;
       }
     }
   }
 
+  result.updatedAtMs = updatedAtMs;
   for (const stepId of unique) {
     const payload = byStep[stepId];
     if (stepId === 7) result[7] = (payload as StepPayloadMap[7] | undefined) ?? null;

@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Camera, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { CHECKLIST_OPTIONS } from "@/lib/production-records/constants";
+import { queuePendingSubmission } from "@/lib/production-records/offline";
 import { submitProductionRecord } from "@/lib/production-records/submit";
+import { syncQueuedProductionRecords } from "@/lib/production-records/sync-queue";
 import {
   buildTemplateSnapshot,
   computeOperatorSignatureHash,
@@ -60,6 +62,16 @@ export function DigitalizarView({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+  const [queued, setQueued] = useState(false);
+
+  useEffect(() => {
+    void syncQueuedProductionRecords({ organizationId, userId });
+    const onOnline = () => {
+      void syncQueuedProductionRecords({ organizationId, userId });
+    };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [organizationId, userId]);
 
   function onFile(file: File) {
     const type =
@@ -176,8 +188,27 @@ export function DigitalizarView({
       });
       setDone(true);
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar");
+    } catch {
+      queuePendingSubmission({
+        clientSubmissionId,
+        organizationId,
+        templateId: bundle.template.id,
+        payload: {
+          area: bundle.template.area,
+          lotNumber: lotNumber || null,
+          deviationNotes: notes || null,
+          values: payload,
+          templateSnapshot: snapshot,
+          operatorSignatureHash: signature,
+          operatorSignedAt: submittedAt,
+          submittedAt,
+          source: "ocr",
+          monitorName: "Digitalizado",
+        },
+        queuedAt: submittedAt,
+      });
+      setQueued(true);
+      setDone(true);
     } finally {
       setSaving(false);
     }
@@ -196,9 +227,13 @@ export function DigitalizarView({
       <div className="px-6 py-10 max-w-lg">
         <div className="bg-white border border-border rounded-md p-6 text-center space-y-3">
           <CheckCircle2 className="h-10 w-10 text-sage mx-auto" />
-          <p className="text-sm font-semibold text-ink">Listo en el histórico</p>
+          <p className="text-sm font-semibold text-ink">
+            {queued ? "Guardado en este dispositivo" : "Listo en el histórico"}
+          </p>
           <p className="text-xs text-ink-light">
-            Revisa el registro y corrige si el OCR interpretó mal un valor.
+            {queued
+              ? "Se enviará al recuperar conexión. No borres los datos de este navegador hasta entonces."
+              : "Revisa el registro y corrige si el OCR interpretó mal un valor."}
           </p>
           <Button type="button" onClick={() => router.push("/registros/historico")}>
             Ver histórico

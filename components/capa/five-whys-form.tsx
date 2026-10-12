@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
+import { useDebouncedCallback } from "@/lib/haccp-plan/use-debounced-callback";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import type { Nc5Whys, Nonconformity } from "@/types/database";
@@ -42,6 +43,8 @@ export function FiveWhysForm({
   const [message, setMessage] = useState("");
   const [suggesting, setSuggesting] = useState(false);
   const [aiError, setAiError] = useState("");
+  const savedIdRef = useRef(initial?.id ?? null);
+  const saveInFlight = useRef<Promise<boolean>>(Promise.resolve(true));
 
   function canShowWhy(index: number): boolean {
     if (index === 0) return true;
@@ -91,15 +94,17 @@ export function FiveWhysForm({
     }
   }
 
-  async function handleSave() {
+  async function persistWhys(showMessage: boolean): Promise<boolean> {
+    const empty = WHYS.every((key) => !values[key].trim()) && !values.root_cause.trim();
+    if (empty) return true;
+
     setSaving(true);
-    setMessage("");
+    if (showMessage) setMessage("");
     const supabase = createClient();
 
     const payload = {
       nc_id: ncId,
       organization_id: organizationId,
-      ...values,
       why_1: values.why_1 || null,
       why_2: values.why_2 || null,
       why_3: values.why_3 || null,
@@ -108,30 +113,26 @@ export function FiveWhysForm({
       root_cause: values.root_cause || null,
     };
 
-    if (initial?.id) {
-      const { data, error } = await supabase
-        .from("nc_5whys")
-        .update(payload)
-        .eq("id", initial.id)
-        .select("*")
-        .single();
-      if (!error && data) {
-        onSaved(data as Nc5Whys);
-        setMessage("Análisis guardado");
-      }
-    } else {
-      const { data, error } = await supabase
-        .from("nc_5whys")
-        .insert(payload)
-        .select("*")
-        .single();
-      if (!error && data) {
-        onSaved(data as Nc5Whys);
-        setMessage("Análisis guardado");
-      }
+    const existingId = savedIdRef.current;
+    const query = existingId
+      ? supabase.from("nc_5whys").update(payload).eq("id", existingId)
+      : supabase.from("nc_5whys").insert(payload);
+
+    const { data, error } = await query.select("*").single();
+    if (error || !data) {
+      setMessage(
+        error?.message
+          ? `No se pudo guardar: ${error.message}`
+          : "No se pudo guardar el análisis. Revisá la conexión."
+      );
+      setSaving(false);
+      return false;
     }
 
-    await supabase
+    savedIdRef.current = (data as Nc5Whys).id;
+    onSaved(data as Nc5Whys);
+
+    const { error: ncError } = await supabase
       .from("nonconformities")
       .update({
         root_cause_method: "5why",
@@ -140,7 +141,46 @@ export function FiveWhysForm({
       })
       .eq("id", ncId);
 
+    if (ncError) {
+      setMessage(`Análisis guardado, pero no se actualizó la NC: ${ncError.message}`);
+      setSaving(false);
+      return false;
+    }
+
+    if (showMessage) setMessage("Análisis guardado");
     setSaving(false);
+    return true;
+  }
+
+  const persistWhysDebounced = useDebouncedCallback(() => {
+    saveInFlight.current = persistWhys(false);
+  }, 1200);
+
+  useEffect(() => {
+    function flush() {
+      persistWhysDebounced.flush();
+    }
+    function onVisibility() {
+      if (document.visibilityState === "hidden") flush();
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
+  }, [persistWhysDebounced]);
+
+  function updateField(key: keyof typeof values, value: string) {
+    setValues((prev) => ({ ...prev, [key]: value }));
+    persistWhysDebounced();
+  }
+
+  async function handleSave() {
+    persistWhysDebounced.flush();
+    await saveInFlight.current;
+    await persistWhys(true);
   }
 
   return (
@@ -180,9 +220,7 @@ export function FiveWhysForm({
               <Textarea
                 label={`¿Por qué ${index + 1}?`}
                 value={values[key]}
-                onChange={(e) =>
-                  setValues((prev) => ({ ...prev, [key]: e.target.value }))
-                }
+                onChange={(e) => updateField(key, e.target.value)}
                 placeholder="Describe la causa..."
                 className={cn(active && values[key].length >= 10 && "ring-1 ring-sage/40")}
               />
@@ -195,14 +233,22 @@ export function FiveWhysForm({
         <Textarea
           label="Causa raíz identificada"
           value={values.root_cause}
-          onChange={(e) =>
-            setValues((prev) => ({ ...prev, root_cause: e.target.value }))
-          }
+          onChange={(e) => updateField("root_cause", e.target.value)}
           placeholder="Resume la causa raíz fundamental..."
         />
       )}
 
-      {message && <p className="text-xs text-sage">{message}</p>}
+      {message && (
+        <p
+          className={
+            message.startsWith("No se pudo") || message.includes("no se actualizó")
+              ? "text-xs text-danger"
+              : "text-xs text-sage"
+          }
+        >
+          {message}
+        </p>
+      )}
 
       <Button onClick={handleSave} loading={saving}>
         Guardar análisis 5 Porqués

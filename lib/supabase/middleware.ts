@@ -56,6 +56,41 @@ async function loadGateOrg(
   return (data as SessionGateOrg | null) ?? null;
 }
 
+const AUTH_TIMEOUT_MS = 2_500;
+
+function hasSupabaseAuthCookie(request: NextRequest): boolean {
+  return request.cookies
+    .getAll()
+    .some((cookie) => cookie.name.includes("-auth-token"));
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("auth timeout")), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+function emptySession(supabaseResponse: NextResponse) {
+  return {
+    supabaseResponse,
+    user: null,
+    onboardingCompleted: false,
+    accessAllowed: true,
+    platformAdmin: false,
+    userRole: null as UserRole | null,
+  };
+}
+
 export async function updateSession(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const nav = { path, host: request.nextUrl.hostname };
@@ -64,6 +99,11 @@ export async function updateSession(request: NextRequest) {
   const endMiddleware = startNavTimer("MW", "total", nav);
 
   let supabaseResponse = NextResponse.next({ request });
+
+  if (!hasSupabaseAuthCookie(request)) {
+    endMiddleware();
+    return emptySession(supabaseResponse);
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -86,35 +126,43 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  const endGetUser = startNavTimer("MW", "auth.getUser()", nav);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  endGetUser();
+  try {
+    const endGetUser = startNavTimer("MW", "auth.getUser()", nav);
+    const {
+      data: { user },
+    } = await withTimeout(supabase.auth.getUser(), AUTH_TIMEOUT_MS);
+    endGetUser();
 
-  let onboardingCompleted = false;
-  let accessAllowed = true;
-  let userRole: UserRole | null = null;
-  const platformAdmin = isPlatformAdmin(user);
+    let onboardingCompleted = false;
+    let accessAllowed = true;
+    let userRole: UserRole | null = null;
+    const platformAdmin = isPlatformAdmin(user);
 
-  if (user) {
-    const endGates = startNavTimer("MW", "session gates", nav);
-    const { profile, org } = await loadSessionGates(supabase, user.id);
-    endGates();
+    if (user) {
+      const endGates = startNavTimer("MW", "session gates", nav);
+      const { profile, org } = await withTimeout(
+        loadSessionGates(supabase, user.id),
+        AUTH_TIMEOUT_MS
+      );
+      endGates();
 
-    const gates = resolveSessionGates({ profile, org, platformAdmin });
-    onboardingCompleted = gates.onboardingCompleted;
-    accessAllowed = gates.accessAllowed;
-    userRole = gates.userRole;
+      const gates = resolveSessionGates({ profile, org, platformAdmin });
+      onboardingCompleted = gates.onboardingCompleted;
+      accessAllowed = gates.accessAllowed;
+      userRole = gates.userRole;
+    }
+
+    endMiddleware();
+    return {
+      supabaseResponse,
+      user,
+      onboardingCompleted,
+      accessAllowed,
+      platformAdmin,
+      userRole,
+    };
+  } catch {
+    endMiddleware();
+    return emptySession(supabaseResponse);
   }
-
-  endMiddleware();
-  return {
-    supabaseResponse,
-    user,
-    onboardingCompleted,
-    accessAllowed,
-    platformAdmin,
-    userRole,
-  };
 }

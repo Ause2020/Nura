@@ -19,6 +19,7 @@ export async function POST(req: Request) {
     deviationNotes?: string | null;
     values?: FieldValuePayload[];
     templateSnapshot?: TemplateSnapshot;
+    clientSubmissionId?: string | null;
   };
 
   const limited = await rateLimitResponse({
@@ -39,7 +40,8 @@ export async function POST(req: Request) {
   }
 
   const submittedAt = new Date().toISOString();
-  const clientSubmissionId = crypto.randomUUID();
+  const clientSubmissionId =
+    body.clientSubmissionId?.trim() || crypto.randomUUID();
   const signature = await computeOperatorSignatureHash({
     userId: body.monitorName.trim(),
     templateId: context.template.id,

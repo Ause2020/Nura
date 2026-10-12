@@ -53,6 +53,17 @@ export function FindingDrawer({
 
   if (!open) return null;
 
+  function persistAndClose() {
+    if (finding.trim()) {
+      onSave({
+        finding_type: findingType,
+        finding,
+        photo_url: photoUrl,
+      });
+    }
+    onClose();
+  }
+
   async function handlePhoto(file: File) {
     const { createClient } = await import("@/lib/supabase/client");
     const supabase = createClient();
@@ -71,7 +82,7 @@ export function FindingDrawer({
 
   return (
     <>
-      <div className="fixed inset-0 bg-ink/40 z-40" onClick={onClose} />
+      <div className="fixed inset-0 bg-ink/40 z-40" onClick={persistAndClose} />
       <div className="fixed bottom-0 left-0 right-0 md:left-56 z-50 bg-white rounded-t-lg border-t border-border shadow-sm max-h-[80vh] overflow-y-auto">
         <div className="px-4 py-4 space-y-4">
           <h3 className="text-sm font-semibold text-ink">Registrar hallazgo</h3>
@@ -123,15 +134,12 @@ export function FindingDrawer({
           {photoUrl && <p className="text-xs text-sage">Evidencia adjunta ✓</p>}
 
           <div className="flex gap-2 pb-4">
-            <Button variant="secondary" className="flex-1" onClick={onClose}>
-              Cancelar
+            <Button variant="secondary" className="flex-1" onClick={persistAndClose}>
+              Cerrar
             </Button>
             <Button
               className="flex-1"
-              onClick={() => {
-                onSave({ finding_type: findingType, finding, photo_url: photoUrl });
-                onClose();
-              }}
+              onClick={persistAndClose}
               disabled={!finding.trim()}
             >
               Guardar hallazgo
