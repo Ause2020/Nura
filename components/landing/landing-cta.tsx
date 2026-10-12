@@ -12,14 +12,16 @@ export function LandingCta() {
             Bienvenido a Nura.
           </h2>
           <p className="mt-4 text-sage-light/90 text-base leading-relaxed max-w-xl mx-auto">
-            En 10 minutos tienes tu primer plan HACCP listo. Empecemos.
+            Plan Pro a precio fijo, o un acuerdo a medida si tienes más de una
+            planta. Te damos empresa, usuario y clave. El pago es por
+            transferencia o factura.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
             <a
-              href="mailto:hola@nurahq.com?subject=Solicitud%20de%20acceso%20Nura"
+              href="#precios"
               className="group inline-flex h-11 px-6 items-center gap-2 text-sm font-semibold rounded-md bg-white text-forest hover:bg-sage-light transition-all duration-300 hover:-translate-y-0.5"
             >
-              Solicitar acceso
+              Ver planes
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
             </a>
             <Link

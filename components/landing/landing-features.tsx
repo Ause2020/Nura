@@ -3,7 +3,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   FileText,
-  GitBranch,
+  QrCode,
   ShieldCheck,
 } from "lucide-react";
 import { Reveal } from "@/components/landing/reveal";
@@ -11,45 +11,45 @@ import { Reveal } from "@/components/landing/reveal";
 const FEATURES = [
   {
     icon: ShieldCheck,
-    title: "HACCP en minutos",
-    body: "Construye tu plan HACCP con árbol de decisiones guiado, biblioteca de peligros precargada y versionado del plan.",
-    quote: "Tu plan HACCP está listo. Falta configurar 2 CCPs para completarlo.",
+    title: "Plan HACCP de 12 pasos",
+    body: "Asistente Codex / NCh 2861: equipo, producto, diagrama, peligros, árbol de PCC, límites, monitoreo, correctivas y verificación. Se guarda solo mientras avanzas.",
+    quote: "El plan queda en un solo lugar, con versiones cuando lo publicas.",
     accent: "forest",
   },
   {
+    icon: QrCode,
+    title: "Monitoreo en planta",
+    body: "Plantillas propias, formulario en sala, QR para el monitor (sin usuario) y digitalización de planillas de papel. Una desviación abre el borrador de NC.",
+    quote: "El QR vive en el puesto. El dato entra al histórico de la empresa.",
+    accent: "sage",
+  },
+  {
     icon: ClipboardList,
-    title: "Monitoreo de PCC",
-    body: "Plantillas configurables, lotes, fotos y desviaciones que se convierten en no conformidades automáticamente.",
-    quote: "Registro de lote 2026-042 completado — sin desviaciones.",
+    title: "Histórico de registros",
+    body: "Cada envío (formulario, QR u OCR) queda con lote, valores, quién midió y si hubo desviación. No se borra solo.",
+    quote: "Mismo histórico para planta, QR y papel digitalizado.",
     accent: "sage",
   },
   {
     icon: ClipboardCheck,
-    title: "Auditorías en planta",
-    body: "Ejecuta checklists configurables desde cualquier dispositivo, adjunta fotos y genera el informe automáticamente.",
-    quote: "Auditoría interna completada — 94% de cumplimiento.",
+    title: "Auditorías internas",
+    body: "Checklist por requisito, foto y hallazgo. Cumplimiento en vivo e informe PDF cuando lo descargas — no ocupa disco hasta pedirlo.",
+    quote: "El cajón de hallazgo se guarda al cerrar. No se pierde el texto.",
     accent: "sage",
   },
   {
     icon: AlertTriangle,
-    title: "CAPA que no se pierde",
-    body: "Análisis de causa raíz con 5 Porqués e Ishikawa, seguimiento automático y escalamiento de acciones vencidas.",
-    quote: "CCP-01 fuera de límite. Revisa el registro de temperatura de cocción de hoy.",
+    title: "CAPA que se puede seguir",
+    body: "Etapas, contención, 5 Porqués e Ishikawa, acciones y verificación de eficacia. El borrador se persiste al escribir, no recién al avanzar.",
+    quote: "La NC nace del monitoreo o de la auditoría. No del correo.",
     accent: "amber",
   },
   {
     icon: FileText,
-    title: "Control documental",
-    body: "Versiones, aprobación con firmas, acuse de lectura y archivos centralizados para tu sistema de gestión.",
-    quote: "POE-04 v3 publicada — 8 lecturas pendientes de confirmar.",
+    title: "Documentos controlados",
+    body: "Versiones, aprobación y archivo privado por empresa. POES y procedimientos con historial, no carpetas sueltas.",
+    quote: "Cada versión queda atada a la organización. Nadie ve la de otra planta.",
     accent: "forest",
-  },
-  {
-    icon: GitBranch,
-    title: "Un solo ciclo",
-    body: "Plan, documentos, monitoreo, auditoría y CAPA conectados. Sin módulos de calidad que nadie usa.",
-    quote: "CCP-01 fuera de límite. La NC se abrió sola desde el monitoreo de hoy.",
-    accent: "sage",
   },
 ];
 
@@ -59,13 +59,14 @@ export function LandingFeatures() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6">
         <Reveal className="text-center max-w-2xl mx-auto mb-14">
           <p className="text-xs font-mono uppercase tracking-[0.18em] text-sage mb-3">
-            Características
+            Lo que incluye
           </p>
           <h2 className="font-display text-3xl md:text-4xl font-semibold text-ink tracking-tight">
-            El sistema de inocuidad que tu equipo sí va a usar.
+            El ciclo de inocuidad que ya corre en Nura.
           </h2>
           <p className="mt-4 text-ink-light leading-relaxed">
-            Deja el Excel. Llega a la auditoría listo.
+            Plan, registros, auditoría, documentos y CAPA. Sin módulos que no
+            existen y sin alta pública: te damos el acceso.
           </p>
         </Reveal>
 

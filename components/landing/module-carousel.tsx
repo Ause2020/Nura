@@ -89,7 +89,7 @@ function PreviewSidebar({ active }: { active: ModuleKey }) {
         <p className="text-[9px] text-white/50 uppercase tracking-wider font-mono">
           Empresa
         </p>
-        <p className="text-[11px] font-medium truncate mt-0.5">Lácteos del Sur</p>
+        <p className="text-[11px] font-medium truncate mt-0.5">Demo</p>
       </div>
       <nav className="flex-1 px-2 py-3 space-y-0.5">
         {NAV.map((item) => {

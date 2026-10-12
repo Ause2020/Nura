@@ -1,32 +1,20 @@
 import { Reveal } from "@/components/landing/reveal";
 
-const TESTIMONIALS = [
+const USES = [
   {
-    quote:
-      "Antes llevábamos el HACCP en tres archivos distintos. Con Nura, el auditor entró, pidió el plan y lo tuvimos en pantalla en segundos.",
-    name: "María González",
-    role: "Jefa de Calidad",
-    company: "Lácteos del Sur",
-    country: "Chile",
-    initials: "MG",
+    title: "El monitor no necesita usuario",
+    body: "Generas un QR del formulario, lo dejas en el puesto y el operador carga lote y valores desde el celular. El registro entra al histórico de la empresa.",
+    tag: "QR en terreno",
   },
   {
-    quote:
-      "Mis operadores completan el monitoreo de PCC desde el celular. Por primera vez tengo todo el mismo día, no una semana después.",
-    name: "Carlos Méndez",
-    role: "Director de Planta",
-    company: "Conservas Andinas",
-    country: "Colombia",
-    initials: "CM",
+    title: "El papel que ya tienen",
+    body: "Si la línea sigue en planilla, la fotografían, Nura lee los campos y tú confirmas antes de que pase al histórico. Misma tabla que el QR y el formulario.",
+    tag: "Digitalizar",
   },
   {
-    quote:
-      "Las NC ya no se pierden en correos. El escalamiento automático de CAPA nos salvó en la última auditoría de cliente.",
-    name: "Ana Ribeiro",
-    role: "Ing. de Inocuidad",
-    company: "Panificadora Nova",
-    country: "Brasil",
-    initials: "AR",
+    title: "La desviación no se pierde",
+    body: "Un valor fuera de rango o un hallazgo de auditoría abre la NC. CAPA sigue por etapas: contención, causa raíz y acciones, con el dato ya en la ficha.",
+    tag: "CAPA",
   },
 ];
 
@@ -36,32 +24,25 @@ export function LandingTestimonials() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6">
         <Reveal className="text-center max-w-2xl mx-auto mb-14">
           <p className="text-xs font-mono uppercase tracking-[0.18em] text-sage mb-3">
-            Equipos de inocuidad
+            En la planta
           </p>
           <h2 className="font-display text-3xl md:text-4xl font-semibold text-ink tracking-tight">
-            Hecho para la planta, no para el escritorio.
+            Hecho para el turno, no para el escritorio.
           </h2>
         </Reveal>
 
         <div className="grid md:grid-cols-3 gap-6">
-          {TESTIMONIALS.map((t, i) => (
-            <Reveal key={t.name} delay={i * 100}>
-              <blockquote className="h-full bg-white border border-border rounded-lg p-6 flex flex-col">
-                <p className="text-sm text-ink-light leading-relaxed flex-1">
-                  &ldquo;{t.quote}&rdquo;
+          {USES.map((item, i) => (
+            <Reveal key={item.title} delay={i * 100}>
+              <article className="h-full bg-white border border-border rounded-lg p-6 flex flex-col">
+                <p className="text-[10px] font-mono uppercase tracking-wider text-sage">
+                  {item.tag}
                 </p>
-                <footer className="mt-6 pt-5 border-t border-border flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-full bg-sage-light flex items-center justify-center text-xs font-mono font-medium text-forest">
-                    {t.initials}
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-ink">{t.name}</p>
-                    <p className="text-xs text-ink-faint">
-                      {t.role} · {t.company}, {t.country}
-                    </p>
-                  </div>
-                </footer>
-              </blockquote>
+                <h3 className="mt-3 text-sm font-semibold text-ink">{item.title}</h3>
+                <p className="mt-2 text-sm text-ink-light leading-relaxed flex-1">
+                  {item.body}
+                </p>
+              </article>
             </Reveal>
           ))}
         </div>

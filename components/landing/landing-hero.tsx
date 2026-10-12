@@ -17,7 +17,7 @@ export function LandingHero() {
           <div className="text-center lg:text-left">
             <p className="nura-hero-text-delay-1 inline-flex items-center gap-2 text-xs font-mono uppercase tracking-[0.2em] text-sage mb-6">
               <span className="h-px w-8 bg-sage/60" />
-              Software de inocuidad alimentaria
+              Software de inocuidad para plantas de alimentos
             </p>
 
             <h1 className="nura-hero-text-delay-2 font-display text-[2.5rem] sm:text-5xl lg:text-[3.25rem] font-semibold text-white leading-[1.08] tracking-tight">
@@ -27,9 +27,9 @@ export function LandingHero() {
             </h1>
 
             <p className="nura-hero-text-delay-3 mt-6 text-base sm:text-lg text-white/65 leading-relaxed max-w-xl mx-auto lg:mx-0 font-light">
-              Nura centraliza tu plan HACCP, monitoreo de PCC, auditorías,
-              documentos y no conformidades en un solo lugar. Hecho por ingenieros
-              de inocuidad, para ingenieros de inocuidad.
+              Plan HACCP de 12 pasos, monitoreo en planta (formulario, QR o
+              papel), auditorías, documentos y CAPA. Te creamos el acceso; el
+              cobro es directo, no por la plataforma.
             </p>
 
             <div className="nura-hero-text-delay-4 mt-8 flex flex-col sm:flex-row items-center lg:items-start justify-center lg:justify-start gap-3">
@@ -37,7 +37,7 @@ export function LandingHero() {
                 href="#precios"
                 className="group inline-flex h-11 px-6 items-center gap-2 text-sm font-semibold rounded-md bg-sage text-white hover:bg-sage/90 transition-all duration-300 shadow-[0_0_40px_-8px_rgba(64,145,108,0.7)] hover:shadow-[0_0_48px_-6px_rgba(64,145,108,0.85)] hover:-translate-y-0.5"
               >
-                Solicitar acceso
+                Ver planes
                 <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5" />
               </a>
               <a
@@ -50,7 +50,7 @@ export function LandingHero() {
             </div>
 
             <p className="nura-hero-text-delay-5 mt-6 text-xs text-white/40 font-mono">
-              HACCP · Documentos · Monitoreo · Auditorías · CAPA.
+              Codex / NCh 2861 · QR en planta · Histórico · CAPA.
             </p>
           </div>
 

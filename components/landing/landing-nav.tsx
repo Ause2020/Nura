@@ -63,7 +63,7 @@ export function LandingNav() {
             href="#precios"
             className="inline-flex h-9 px-4 items-center text-sm font-medium rounded-md bg-sage text-white hover:bg-sage/90 transition-colors duration-200 shadow-[0_0_24px_-4px_rgba(64,145,108,0.55)]"
           >
-            Solicitar acceso
+            Ver planes
           </a>
         </div>
       </div>

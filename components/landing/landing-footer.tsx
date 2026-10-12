@@ -24,7 +24,8 @@ export function LandingFooter() {
               Nura<span className="text-sage">.</span>
             </p>
             <p className="mt-2 text-sm leading-relaxed">
-              Tu inocuidad, finalmente clara.
+              Plan HACCP, monitoreo en planta, auditorías, documentos y CAPA.
+              Acceso por contrato; cobro directo.
             </p>
             <p className="mt-1 text-xs font-mono text-white/35">nurahq.com</p>
           </div>
